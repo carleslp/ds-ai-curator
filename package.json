@@ -7,9 +7,9 @@
     "dev": "tsx src/index.ts",
     "dev:server": "tsx src/server.ts",
     "build": "tsc",
-    "test:email": "npm run build && node dist/testEmail.js",
-    "start": "node dist/index.js",
-    "start:server": "node dist/server.js"
+    "test:email": "npm run build && node dist/src/testEmail.js",
+    "start": "node dist/src/index.js",
+    "start:server": "node dist/src/server.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
