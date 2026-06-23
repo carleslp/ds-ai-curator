@@ -29,15 +29,13 @@ function safeUrl(value: unknown): string {
   return "#";
 }
 
-function renderResourceCard(resource: Resource, index: number): string {
-  const isLast = index === 4;
-  const border = isLast ? "" : "border-bottom:1px solid #f3f4f6;";
+function renderResourceCard(resource: Resource): string {
   const date = resource.published_date || resource.date || "Recent";
 
   return `
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="${border}">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #ede9f3;border-radius:14px;">
   <tr>
-    <td style="padding:18px 0;">
+    <td style="padding:20px;">
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
         <tr>
           <td>
@@ -78,6 +76,27 @@ function renderResourceCard(resource: Resource, index: number): string {
 </table>`;
 }
 
+function renderResourceGrid(resources: Resource[]): string {
+  const rows: string[] = [];
+
+  for (let index = 0; index < resources.length; index += 2) {
+    const left = resources[index];
+    const right = resources[index + 1];
+
+    rows.push(`
+                      <tr>
+                        <td class="resource-column" width="50%" valign="top" style="width:50%;padding:0 10px 20px 0;">
+                          ${renderResourceCard(left)}
+                        </td>
+                        <td class="resource-column" width="50%" valign="top" style="width:50%;padding:0 0 20px 10px;">
+                          ${right ? renderResourceCard(right) : ""}
+                        </td>
+                      </tr>`);
+  }
+
+  return rows.join("");
+}
+
 export function renderEmail(digest: Digest): string {
   const resources = digest.resources.slice(0, 5);
 
@@ -85,20 +104,41 @@ export function renderEmail(digest: Digest): string {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DS × AI Curator</title>
+  <style>
+    @media only screen and (max-width: 700px) {
+      .email-container {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+
+      .email-padding {
+        padding-left: 20px !important;
+        padding-right: 20px !important;
+      }
+
+      .resource-column {
+        display: block !important;
+        width: 100% !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+      }
+    }
+  </style>
 </head>
 <body style="margin:0;padding:24px 16px;background:#F0EEF8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr>
       <td align="center">
 
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:680px;">
+        <table class="email-container" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:1200px;">
           <tr>
             <td>
 
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#1a0533;border-radius:18px 18px 0 0;">
                 <tr>
-                  <td style="padding:30px 40px 22px;">
+                  <td class="email-padding" style="padding:30px 40px 22px;">
                     <table width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
                         <td>
@@ -128,7 +168,7 @@ export function renderEmail(digest: Digest): string {
 
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#2d1054;border-left:4px solid #7c3aed;">
                 <tr>
-                  <td style="padding:17px 40px;">
+                  <td class="email-padding" style="padding:17px 40px;">
                     <div style="font-size:9px;font-weight:900;color:#c4b5fd;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:7px;">
                       Trends today
                     </div>
@@ -141,19 +181,21 @@ export function renderEmail(digest: Digest): string {
 
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
                 <tr>
-                  <td style="padding:30px 40px;">
+                  <td class="email-padding" style="padding:30px 40px;">
                     <div style="font-size:9px;font-weight:900;color:#7c3aed;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:16px;padding-bottom:9px;border-bottom:1px solid #f3f4f6;">
                       5 resources · AI + Design Systems
                     </div>
 
-                    ${resources.map(renderResourceCard).join("")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      ${renderResourceGrid(resources)}
+                    </table>
                   </td>
                 </tr>
               </table>
 
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 18px 18px;">
                 <tr>
-                  <td style="padding:20px 40px;">
+                  <td class="email-padding" style="padding:20px 40px;">
                     <table width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
                         <td style="font-size:11px;color:#9ca3af;">
