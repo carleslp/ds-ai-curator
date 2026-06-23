@@ -1,6 +1,6 @@
 import http from "node:http";
 import { renderEmail } from "./emailTemplate.js";
-import { buildSubject, createMockDigest } from "./mockDigest.js";
+import { buildSubject, getDailyDigest } from "./digestService.js";
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -34,21 +34,13 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  try {
-    const digest = createMockDigest();
+  const digest = await getDailyDigest();
 
-    jsonResponse(response, 200, {
-      subject: buildSubject(digest.date),
-      html: renderEmail(digest),
-      digest
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    jsonResponse(response, 500, {
-      error: "Failed to generate daily digest",
-      message
-    });
-  }
+  jsonResponse(response, 200, {
+    subject: buildSubject(digest.date),
+    html: renderEmail(digest),
+    digest
+  });
 });
 
 server.listen(port, host, () => {
