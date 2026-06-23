@@ -4,12 +4,20 @@
     {
       "src": "api/daily-digest.ts",
       "use": "@vercel/node"
+    },
+    {
+      "src": "api/debug-digest.ts",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/daily-digest",
       "dest": "/api/daily-digest.ts"
+    },
+    {
+      "src": "/api/debug-digest",
+      "dest": "/api/debug-digest.ts"
     }
   ]
 }

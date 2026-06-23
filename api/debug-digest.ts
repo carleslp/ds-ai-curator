@@ -1,5 +1,4 @@
-import { renderEmail } from "../src/emailTemplate.js";
-import { buildSubject, getDailyDigest } from "../src/digestService.js";
+import { getDailyDigest, toDebugResources } from "../src/digestService.js";
 
 type VercelRequest = {
   method?: string;
@@ -19,21 +18,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   const result = await getDailyDigest();
-  const { digest } = result;
 
   response.setHeader("Cache-Control", "no-store");
   response.status(200).json({
-    subject: buildSubject(digest.date),
-    html: renderEmail(digest),
-    digest,
-    ...(process.env.NODE_ENV !== "production"
-      ? {
-          debug: {
-            mode: result.mode,
-            hasOpenAIKey: result.hasOpenAIKey,
-            ...(result.reason ? { reason: result.reason } : {})
-          }
-        }
-      : {})
+    mode: result.mode,
+    hasOpenAIKey: result.hasOpenAIKey,
+    resources: toDebugResources(result.digest.resources)
   });
 }

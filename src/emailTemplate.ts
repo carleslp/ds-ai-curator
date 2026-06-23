@@ -6,6 +6,7 @@ export type Resource = {
   published_date?: string;
   date?: string;
   summary: string;
+  is_real_source?: boolean;
 };
 
 export type Digest = {

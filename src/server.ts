@@ -1,6 +1,6 @@
 import http from "node:http";
 import { renderEmail } from "./emailTemplate.js";
-import { buildSubject, getDailyDigest } from "./digestService.js";
+import { buildSubject, getDailyDigest, toDebugResources } from "./digestService.js";
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -26,16 +26,29 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname !== "/daily-digest" && url.pathname !== "/api/daily-digest") {
+  if (
+    url.pathname !== "/daily-digest" &&
+    url.pathname !== "/api/daily-digest" &&
+    url.pathname !== "/api/debug-digest"
+  ) {
     jsonResponse(response, 404, {
       error: "Not found",
-      available_routes: ["/api/daily-digest", "/daily-digest", "/health"]
+      available_routes: ["/api/daily-digest", "/api/debug-digest", "/daily-digest", "/health"]
     });
     return;
   }
 
   const result = await getDailyDigest();
   const { digest } = result;
+
+  if (url.pathname === "/api/debug-digest") {
+    jsonResponse(response, 200, {
+      mode: result.mode,
+      hasOpenAIKey: result.hasOpenAIKey,
+      resources: toDebugResources(digest.resources)
+    });
+    return;
+  }
 
   jsonResponse(response, 200, {
     subject: buildSubject(digest.date),
@@ -44,8 +57,9 @@ const server = http.createServer(async (request, response) => {
     ...(process.env.NODE_ENV !== "production"
       ? {
           debug: {
-            usedFallback: result.usedFallback,
-            ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
+            mode: result.mode,
+            hasOpenAIKey: result.hasOpenAIKey,
+            ...(result.reason ? { reason: result.reason } : {})
           }
         }
       : {})

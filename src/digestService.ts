@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import type { Digest } from "./emailTemplate.js";
+import type { Digest, Resource } from "./emailTemplate.js";
 
 const categories = [
   "AI + Design Systems",
@@ -23,35 +23,28 @@ const ResourceSchema = z.object({
   design_system_angle: z.string().min(1),
   why_it_matters_to_our_team: z.string().min(1),
   relevance_score: z.number().min(1).max(5),
-  confidence_score: z.number().min(1).max(5)
+  confidence_score: z.number().min(1).max(5),
+  is_real_source: z.boolean()
 });
 
 const DigestSchema = z.object({
   date: z.string().min(1),
   trend_summary: z.string().min(1),
-  resources: z.array(ResourceSchema).length(5)
-}).superRefine((digest, context) => {
-  const seen = new Set(digest.resources.map((resource) => resource.category));
-
-  for (const category of categories) {
-    if (!seen.has(category)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `Missing required category: ${category}`
-      });
-    }
-  }
+  resources: z.array(ResourceSchema).max(5)
 });
+
+type DigestMode = "liveOpenAI" | "cachedDigest" | "emergencyFallback";
 
 type DailyDigestResult = {
   digest: Digest;
-  usedFallback: boolean;
-  fallbackReason?: string;
+  mode: DigestMode;
+  hasOpenAIKey: boolean;
+  reason?: string;
 };
 
 type InternalDigest = z.infer<typeof DigestSchema>;
 
-let lastSuccessfulDigest: Digest = createSeedDigest();
+let cachedDigest: Digest | undefined;
 
 function todayIsoDate(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -66,60 +59,13 @@ export function buildSubject(date: string): string {
   return `DS × AI Curator — ${date}`;
 }
 
-function createSeedDigest(): Digest {
+function createEmergencyFallbackDigest(): Digest {
   const today = todayIsoDate();
 
   return {
     date: today,
-    trend_summary:
-      "AI is reshaping design systems through component generation, token workflows, Figma-native tooling, and LLM-driven interface patterns.",
-    resources: [
-      {
-        title: "AI is becoming a design system governance layer",
-        url: "https://www.designsystems.com/",
-        source: "DS × AI Curator",
-        type: "Article",
-        published_date: today,
-        summary:
-          "Teams are using AI to improve documentation, audit component usage, and strengthen system adoption across product surfaces."
-      },
-      {
-        title: "Generated components need system-aware review",
-        url: "https://react.dev/",
-        source: "DS × AI Curator",
-        type: "Docs",
-        published_date: today,
-        summary:
-          "AI-generated UI is most useful when constrained by existing component APIs, accessibility rules, and review workflows."
-      },
-      {
-        title: "Design tokens are a practical AI control surface",
-        url: "https://tr.designtokens.org/",
-        source: "DS × AI Curator",
-        type: "Docs",
-        published_date: today,
-        summary:
-          "Token metadata gives AI tools a structured way to reason about color, spacing, typography, themes, and brand consistency."
-      },
-      {
-        title: "Figma-native AI workflows are moving closer to production",
-        url: "https://www.figma.com/ai/",
-        source: "DS × AI Curator",
-        type: "Tool",
-        published_date: today,
-        summary:
-          "Design teams are evaluating AI features for ideation, asset creation, naming, documentation, and faster design system maintenance."
-      },
-      {
-        title: "LLMs are changing how teams describe UI patterns",
-        url: "https://www.w3.org/WAI/ARIA/apg/",
-        source: "DS × AI Curator",
-        type: "Docs",
-        published_date: today,
-        summary:
-          "Pattern libraries and accessibility guidance give language models stronger context for suggesting reusable interaction patterns."
-      }
-    ]
+    trend_summary: "Fallback: live curation is currently unavailable and no cached digest exists.",
+    resources: []
   };
 }
 
@@ -131,7 +77,7 @@ function digestJsonSchema() {
       trend_summary: { type: "string" },
       resources: {
         type: "array",
-        minItems: 5,
+        minItems: 0,
         maxItems: 5,
         items: {
           type: "object",
@@ -146,7 +92,8 @@ function digestJsonSchema() {
             design_system_angle: { type: "string" },
             why_it_matters_to_our_team: { type: "string" },
             relevance_score: { type: "number", minimum: 1, maximum: 5 },
-            confidence_score: { type: "number", minimum: 1, maximum: 5 }
+            confidence_score: { type: "number", minimum: 1, maximum: 5 },
+            is_real_source: { type: "boolean" }
           },
           required: [
             "title",
@@ -159,7 +106,8 @@ function digestJsonSchema() {
             "design_system_angle",
             "why_it_matters_to_our_team",
             "relevance_score",
-            "confidence_score"
+            "confidence_score",
+            "is_real_source"
           ],
           additionalProperties: false
         }
@@ -223,18 +171,25 @@ Return valid JSON only with this exact shape:
       "design_system_angle": "Specific connection to the Figma -> Storybook -> React Design System workflow.",
       "why_it_matters_to_our_team": "Practical team-specific recommendation.",
       "relevance_score": 5,
-      "confidence_score": 5
+      "confidence_score": 5,
+      "is_real_source": true
     }
   ]
 }
 
-Return exactly 5 resources, one for each category:
+Try to return exactly 5 resources, one for each category:
 ${categories.map((category) => `- ${category}`).join("\n")}
 
 Requirements:
 - English resources only.
 - Prefer fresh, substantive resources from primary sources, product updates, research, standards, conference talks, or expert analysis.
 - Use real resources discovered through web search. Do not invent URLs.
+- Never generate invented article titles.
+- Every title must match the actual linked source title.
+- Every source must be the real publisher or domain.
+- Every resource must include a real working URL.
+- Set is_real_source to true only when the URL, title, and publisher/source are real and match the linked source.
+- If you cannot find 5 real resources, return fewer than 5 resources. Do not invent resources to fill the list.
 - Avoid duplicates.
 - Every candidate must answer YES to: "Would this help improve a Figma -> Storybook -> React Design System workflow?"
 - Only include resources with relevance_score >= 4 and confidence_score >= 4.
@@ -248,7 +203,10 @@ Requirements:
 
 function toPublicDigest(internalDigest: InternalDigest): Digest {
   const rankedResources = [...internalDigest.resources]
-    .filter((resource) => resource.relevance_score >= 4 && resource.confidence_score >= 4)
+    .filter(
+      (resource) =>
+        resource.is_real_source && resource.relevance_score >= 4 && resource.confidence_score >= 4
+    )
     .sort((a, b) => {
       const scoreDifference =
         b.relevance_score + b.confidence_score - (a.relevance_score + a.confidence_score);
@@ -261,8 +219,10 @@ function toPublicDigest(internalDigest: InternalDigest): Digest {
     })
     .slice(0, 5);
 
-  if (rankedResources.length !== 5) {
-    throw new Error(`Expected 5 high-quality resources after ranking, received ${rankedResources.length}.`);
+  if (rankedResources.length < 5) {
+    console.error(
+      `OpenAI returned ${rankedResources.length} real high-quality resources after filtering; returning fewer than 5 rather than inventing resources.`
+    );
   }
 
   return {
@@ -274,7 +234,8 @@ function toPublicDigest(internalDigest: InternalDigest): Digest {
       url: resource.url,
       type: resource.type,
       published_date: resource.published_date,
-      summary: resource.summary
+      summary: resource.summary,
+      is_real_source: resource.is_real_source
     }))
   };
 }
@@ -325,22 +286,46 @@ function getErrorMessage(error: unknown): string {
 }
 
 export async function getDailyDigest(): Promise<DailyDigestResult> {
+  const hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
+
   try {
     const digest = await fetchDigestFromOpenAI();
-    lastSuccessfulDigest = digest;
+    cachedDigest = digest;
+    console.log(`Daily digest mode: liveOpenAI (${digest.resources.length} resources).`);
     return {
       digest,
-      usedFallback: false
+      mode: "liveOpenAI",
+      hasOpenAIKey
     };
   } catch (error) {
-    const fallbackReason = getErrorMessage(error);
-    console.error(`Daily digest curation failed: ${fallbackReason}`);
-    console.error("Returning last successful digest instead of HTTP 500.");
+    const reason = getErrorMessage(error);
+    console.error(`Daily digest curation failed: ${reason}`);
 
+    if (cachedDigest) {
+      console.error("Daily digest mode: cachedDigest.");
+      return {
+        digest: cachedDigest,
+        mode: "cachedDigest",
+        hasOpenAIKey,
+        reason
+      };
+    }
+
+    console.error("Daily digest mode: emergencyFallback.");
     return {
-      digest: lastSuccessfulDigest,
-      usedFallback: true,
-      fallbackReason
+      digest: createEmergencyFallbackDigest(),
+      mode: "emergencyFallback",
+      hasOpenAIKey,
+      reason
     };
   }
+}
+
+export function toDebugResources(resources: Resource[]) {
+  return resources.map((resource) => ({
+    title: resource.title,
+    url: resource.url,
+    source: resource.source,
+    is_real_source: Boolean(resource.is_real_source)
+  }));
 }
