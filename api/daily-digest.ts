@@ -31,7 +31,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
           debug: {
             mode: result.mode,
             hasOpenAIKey: result.hasOpenAIKey,
-            ...(result.reason ? { reason: result.reason } : {})
+            resourceCount: digest.resources.length,
+            ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
           }
         }
       : {})

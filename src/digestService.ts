@@ -39,7 +39,7 @@ type DailyDigestResult = {
   digest: Digest;
   mode: DigestMode;
   hasOpenAIKey: boolean;
-  reason?: string;
+  fallbackReason?: string;
 };
 
 type InternalDigest = z.infer<typeof DigestSchema>;
@@ -225,6 +225,10 @@ function toPublicDigest(internalDigest: InternalDigest): Digest {
     );
   }
 
+  if (rankedResources.length === 0) {
+    console.error("OpenAI returned zero real resources after filtering. Digest resources will be empty.");
+  }
+
   return {
     date: internalDigest.date,
     trend_summary: internalDigest.trend_summary,
@@ -242,6 +246,7 @@ function toPublicDigest(internalDigest: InternalDigest): Digest {
 
 async function fetchDigestFromOpenAI(): Promise<Digest> {
   const apiKey = process.env.OPENAI_API_KEY;
+  console.log(`Step 1: OPENAI_API_KEY exists? ${Boolean(apiKey)}`);
 
   if (!apiKey) {
     console.error("OPENAI_API_KEY is missing; live curation cannot run.");
@@ -251,6 +256,7 @@ async function fetchDigestFromOpenAI(): Promise<Digest> {
   const client = new OpenAI({ apiKey });
   const date = todayIsoDate();
 
+  console.log(`Step 2: OpenAI request started using model ${openAIModel}.`);
   const response = await client.responses.create({
     model: openAIModel,
     tools: [{ type: "web_search" }],
@@ -265,9 +271,14 @@ async function fetchDigestFromOpenAI(): Promise<Digest> {
       }
     }
   });
+  console.log("Step 3: OpenAI response received.");
 
   const parsed = JSON.parse(response.output_text);
+  console.log("Step 4: JSON parsed successfully.");
+
   const internalDigest = DigestSchema.parse(parsed);
+  console.log("Step 5: Resource validation passed.");
+
   const digest = toPublicDigest(internalDigest);
 
   if (JSON.stringify(digest).toLowerCase().includes("fallback")) {
@@ -279,7 +290,31 @@ async function fetchDigestFromOpenAI(): Promise<Digest> {
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return error.message;
+    const details: string[] = [error.message];
+    const maybeApiError = error as Error & {
+      status?: number;
+      code?: string;
+      type?: string;
+      requestID?: string;
+    };
+
+    if (maybeApiError.status) {
+      details.push(`status=${maybeApiError.status}`);
+    }
+
+    if (maybeApiError.code) {
+      details.push(`code=${maybeApiError.code}`);
+    }
+
+    if (maybeApiError.type) {
+      details.push(`type=${maybeApiError.type}`);
+    }
+
+    if (maybeApiError.requestID) {
+      details.push(`requestID=${maybeApiError.requestID}`);
+    }
+
+    return details.join(" | ");
   }
 
   return String(error);
@@ -291,6 +326,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   try {
     const digest = await fetchDigestFromOpenAI();
     cachedDigest = digest;
+    console.log("Step 6: Digest cached.");
     console.log(`Daily digest mode: liveOpenAI (${digest.resources.length} resources).`);
     return {
       digest,
@@ -298,8 +334,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hasOpenAIKey
     };
   } catch (error) {
-    const reason = getErrorMessage(error);
-    console.error(`Daily digest curation failed: ${reason}`);
+    const fallbackReason = getErrorMessage(error);
+    console.error(`fallbackReason: ${fallbackReason}`);
+    console.error("OpenAI/live curation error object:", error);
 
     if (cachedDigest) {
       console.error("Daily digest mode: cachedDigest.");
@@ -307,7 +344,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         digest: cachedDigest,
         mode: "cachedDigest",
         hasOpenAIKey,
-        reason
+        fallbackReason
       };
     }
 
@@ -316,7 +353,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       digest: createEmergencyFallbackDigest(),
       mode: "emergencyFallback",
       hasOpenAIKey,
-      reason
+      fallbackReason
     };
   }
 }

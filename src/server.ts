@@ -45,6 +45,8 @@ const server = http.createServer(async (request, response) => {
     jsonResponse(response, 200, {
       mode: result.mode,
       hasOpenAIKey: result.hasOpenAIKey,
+      fallbackReason: result.fallbackReason,
+      resourceCount: digest.resources.length,
       resources: toDebugResources(digest.resources)
     });
     return;
@@ -59,7 +61,8 @@ const server = http.createServer(async (request, response) => {
           debug: {
             mode: result.mode,
             hasOpenAIKey: result.hasOpenAIKey,
-            ...(result.reason ? { reason: result.reason } : {})
+            resourceCount: digest.resources.length,
+            ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
           }
         }
       : {})

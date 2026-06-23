@@ -23,6 +23,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
   response.status(200).json({
     mode: result.mode,
     hasOpenAIKey: result.hasOpenAIKey,
+    fallbackReason: result.fallbackReason,
+    resourceCount: result.digest.resources.length,
     resources: toDebugResources(result.digest.resources)
   });
 }
