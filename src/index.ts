@@ -26,10 +26,6 @@ type Newsletter = NewsletterData & { html: string };
 
 const outputDir = path.join(process.cwd(), "outputs");
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
 function todayIsoDate(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: process.env.NEWSLETTER_TIME_ZONE ?? "UTC",
@@ -200,6 +196,9 @@ function renderHtml(newsletter: NewsletterData): string {
 
 async function generateNewsletter(): Promise<Newsletter> {
   const date = todayIsoDate();
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY
+  });
 
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-5.5",
@@ -248,7 +247,9 @@ async function main(): Promise<void> {
   await saveNewsletter(newsletter);
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
