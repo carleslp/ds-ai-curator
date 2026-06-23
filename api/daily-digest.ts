@@ -18,12 +18,21 @@ export default async function handler(request: VercelRequest, response: VercelRe
     return;
   }
 
-  const digest = await getDailyDigest();
+  const result = await getDailyDigest();
+  const { digest } = result;
 
   response.setHeader("Cache-Control", "no-store");
   response.status(200).json({
     subject: buildSubject(digest.date),
     html: renderEmail(digest),
-    digest
+    digest,
+    ...(process.env.NODE_ENV !== "production"
+      ? {
+          debug: {
+            usedFallback: result.usedFallback,
+            ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
+          }
+        }
+      : {})
   });
 }

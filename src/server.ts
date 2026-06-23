@@ -34,12 +34,21 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
-  const digest = await getDailyDigest();
+  const result = await getDailyDigest();
+  const { digest } = result;
 
   jsonResponse(response, 200, {
     subject: buildSubject(digest.date),
     html: renderEmail(digest),
-    digest
+    digest,
+    ...(process.env.NODE_ENV !== "production"
+      ? {
+          debug: {
+            usedFallback: result.usedFallback,
+            ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
+          }
+        }
+      : {})
   });
 });
 
