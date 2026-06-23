@@ -4,11 +4,11 @@
   "description": "Daily curated newsletter about AI applied to Design Systems.",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx src/server.ts",
     "dev:server": "tsx src/server.ts",
     "build": "tsc",
     "test:email": "npm run build && node dist/src/testEmail.js",
-    "start": "node dist/src/index.js",
+    "start": "node dist/src/server.js",
     "start:server": "node dist/src/server.js"
   },
   "dependencies": {

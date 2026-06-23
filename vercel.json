@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/daily-digest.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/daily-digest",
+      "dest": "/api/daily-digest.ts"
+    }
+  ]
+}
