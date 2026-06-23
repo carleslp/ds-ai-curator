@@ -144,12 +144,12 @@ export function renderEmail(digest: Digest): string {
                         <td>
                           <table cellpadding="0" cellspacing="0" border="0">
                             <tr>
-                              <td style="width:40px;height:40px;background:#7c3aed;border-radius:12px;text-align:center;vertical-align:middle;font-size:18px;color:#ffffff;">
-                                ⚡
+                              <td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;min-width:40px;line-height:40px;background:#7c3aed;border-radius:12px;text-align:center;vertical-align:middle;font-size:18px;color:#ffffff;mso-line-height-rule:exactly;">
+                                <span style="display:inline-block;line-height:40px;mso-line-height-rule:exactly;">⚡</span>
                               </td>
-                              <td style="width:16px;"></td>
-                              <td style="font-size:21px;font-weight:900;color:#ffffff;vertical-align:middle;">
-                                DS × AI Curator
+                              <td width="16" style="width:16px;font-size:0;line-height:0;">&nbsp;</td>
+                              <td height="40" valign="middle" style="height:40px;font-size:21px;line-height:40px;font-weight:900;color:#ffffff;vertical-align:middle;mso-line-height-rule:exactly;">
+                                <span style="line-height:40px;mso-line-height-rule:exactly;">DS × AI Curator</span>
                               </td>
                             </tr>
                           </table>
