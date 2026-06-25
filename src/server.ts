@@ -1,6 +1,6 @@
 import http from "node:http";
 import { renderEmail } from "./emailTemplate.js";
-import { buildSubject, getDailyDigest, toDebugResources } from "./digestService.js";
+import { buildSubject, getDailyDigest } from "./digestService.js";
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -45,9 +45,13 @@ const server = http.createServer(async (request, response) => {
     jsonResponse(response, 200, {
       mode: result.mode,
       hasOpenAIKey: result.hasOpenAIKey,
-      fallbackReason: result.fallbackReason,
-      resourceCount: digest.resources.length,
-      resources: toDebugResources(digest.resources)
+      hasGeminiKey: result.hasGeminiKey,
+      fallbackReason: result.fallbackReason ?? "",
+      candidateCount: result.candidateCount,
+      filteredCandidateCount: result.filteredCandidateCount,
+      selectedResourceCount: result.selectedResourceCount,
+      candidatesPreview: result.candidatesPreview,
+      selectedPreview: result.selectedPreview
     });
     return;
   }
@@ -61,7 +65,10 @@ const server = http.createServer(async (request, response) => {
           debug: {
             mode: result.mode,
             hasOpenAIKey: result.hasOpenAIKey,
-            resourceCount: digest.resources.length,
+            hasGeminiKey: result.hasGeminiKey,
+            candidateCount: result.candidateCount,
+            filteredCandidateCount: result.filteredCandidateCount,
+            selectedResourceCount: result.selectedResourceCount,
             ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
           }
         }

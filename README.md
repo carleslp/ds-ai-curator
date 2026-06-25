@@ -1,8 +1,8 @@
 # DS AI Curator
 
-Generate a daily curated newsletter about AI applied to Design Systems.
+Generate a curated newsletter about AI applied to Design Systems.
 
-The app uses the OpenAI API with web search, returns exactly 5 resources as structured JSON, and generates Gmail-compatible table-based HTML. It does not send email.
+The curator does not use the LLM as a web search engine. It first collects candidate resources from predefined sources, filters them with Design System keyword rules, then uses an LLM only to rank and summarize the collected candidates. If no LLM key is configured, it returns a candidate-based fallback instead of invented resources.
 
 ## Setup
 
@@ -11,54 +11,113 @@ npm install
 cp .env.example .env
 ```
 
-Add your API key to `.env`:
+Add one or both provider keys to `.env`:
 
 ```bash
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-5.5
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-## Run
+## Run Locally
 
 ```bash
-npm run dev
+npm run dev:server
 ```
 
-The app writes:
+Available endpoints:
 
-- `outputs/newsletter.json`
-- `outputs/newsletter.html`
+- `GET /api/daily-digest`
+- `GET /api/debug-digest`
+- `GET /health`
 
-## Build And Run
+## Preview Email
+
+```bash
+npm run test:email
+```
+
+This generates `output.html` locally so you can preview the Gmail-compatible email.
+
+## Build
 
 ```bash
 npm run build
 npm start
 ```
 
-## Output Contract
+## Daily Digest Contract
 
-The generated JSON contains:
+`GET /api/daily-digest` returns:
 
-- `date`
-- `topic`
-- `trendSummary`
-- exactly 5 `resources`
-- `html`
+```json
+{
+  "subject": "DS × AI Curator — 2026-06-25",
+  "html": "<!DOCTYPE html>...",
+  "digest": {
+    "date": "2026-06-25",
+    "trend_summary": "...",
+    "resources": []
+  }
+}
+```
 
 Each resource includes:
 
 - `title`
 - `source`
 - `url`
-- `publishedDate`
-- `whyItMatters`
-- `designSystemsAngle`
-- `tags`
+- `type`
+- `published_date`
+- `summary`
+- `is_real_source`
+
+## Debug Contract
+
+`GET /api/debug-digest` returns pipeline state without rendering HTML:
+
+```json
+{
+  "mode": "liveOpenAI",
+  "hasOpenAIKey": true,
+  "hasGeminiKey": false,
+  "candidateCount": 30,
+  "filteredCandidateCount": 12,
+  "selectedResourceCount": 5,
+  "fallbackReason": "",
+  "candidatesPreview": [
+    {
+      "title": "",
+      "source": "",
+      "url": "",
+      "published_date": ""
+    }
+  ],
+  "selectedPreview": [
+    {
+      "title": "",
+      "source": "",
+      "url": "",
+      "relevance_score": 5
+    }
+  ]
+}
+```
+
+Modes:
+
+- `liveOpenAI`
+- `liveGemini`
+- `candidateFallback`
+- `cachedDigest`
+- `emergencyFallback`
+
+## Email
 
 The HTML uses inline styles and table-based layout for Gmail compatibility, including:
 
-- dark purple header
+- dark purple rounded header
 - date
 - trend summary bar
-- 5 resource cards
+- up to 5 resource cards
 - footer text: `Curated by DS × AI Curator`
