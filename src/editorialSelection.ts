@@ -14,6 +14,8 @@ export type EditorialSelectionDecision = {
   topicGroup: TopicGroup;
   selectedBecause: string;
   skippedBecause: string;
+  editorialMissionMatch: boolean;
+  missionReason: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -36,6 +38,8 @@ type ScoredCandidate = {
 
 const targetGroups: TopicGroup[] = ["Storybook", "Figma", "AI Research", "Enterprise Practice", "Tooling"];
 const minimumEditorialScore = 30;
+const missionRejectReason =
+  "Skipped because it does not satisfy the DS × AI Curator mission: AI-powered tooling with direct Design System work impact.";
 const aiResearchDesignSystemTopics: DesignSystemTopic[] = [
   "Figma",
   "Storybook",
@@ -55,6 +59,29 @@ function textForCandidate(candidate: CandidateResource): string {
 
 function hasAnyTopic<T extends string>(topics: T[], expected: T[]): boolean {
   return expected.some((topic) => topics.includes(topic));
+}
+
+function hasAnyText(text: string, terms: string[]): boolean {
+  return terms.some((term) => text.includes(term));
+}
+
+function hasAiTextSignal(text: string): boolean {
+  return (
+    /(^|[^a-z])ai([^a-z]|$)/i.test(text) ||
+    hasAnyText(text, [
+      "artificial intelligence",
+      "llm",
+      "agent",
+      "mcp",
+      "model context protocol",
+      "automation",
+      "generative",
+      "copilot",
+      "rag",
+      "machine-readable",
+      "machine readable"
+    ])
+  );
 }
 
 function topicGroupFor(
@@ -111,22 +138,70 @@ function hasAiResearchWorkflowConnection(
   return hasAnyTopic(topics.designSystemTopics, aiResearchDesignSystemTopics);
 }
 
+function missionMatchFor(
+  candidate: CandidateResource,
+  score: EditorialScore,
+  topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics">
+): Pick<EditorialSelectionDecision, "editorialMissionMatch" | "missionReason"> {
+  const text = textForCandidate(candidate);
+  const hasAiRelevance =
+    topics.aiTopics.length > 0 ||
+    score.aiScore > 0 ||
+    hasAiTextSignal(text);
+  const hasDirectDesignSystemImpact =
+    topics.designSystemTopics.length > 0 ||
+    topics.workflowTopics.length > 0 ||
+    score.workflowScore > 0 ||
+    candidate.directDesignSystemEvidence.trim().length > 0;
+
+  if (hasAiRelevance && hasDirectDesignSystemImpact) {
+    return {
+      editorialMissionMatch: true,
+      missionReason:
+        "Matches mission: AI or AI-powered tooling intersects with mature Design System work such as design, documentation, governance, implementation, testing, maintenance, or consumption."
+    };
+  }
+
+  if (!hasAiRelevance && !hasDirectDesignSystemImpact) {
+    return {
+      editorialMissionMatch: false,
+      missionReason: "Rejected mission match: neither AI-powered tooling nor direct Design System workflow impact was strong enough."
+    };
+  }
+
+  if (!hasAiRelevance) {
+    return {
+      editorialMissionMatch: false,
+      missionReason: "Rejected mission match: Design System relevance exists, but the resource is not about AI or AI-powered tooling."
+    };
+  }
+
+  return {
+    editorialMissionMatch: false,
+    missionReason: "Rejected mission match: AI relevance exists, but direct impact on mature Design System work was not strong enough."
+  };
+}
+
 function qualityRejection(
   candidate: CandidateResource,
   score: EditorialScore,
   topicGroup: TopicGroup,
-  topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics">
+  topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics" | "editorialMissionMatch">
 ): string {
+  if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(topics)) {
+    return "Skipped because AI Research lacks a direct Design System workflow connection.";
+  }
+
+  if (!topics.editorialMissionMatch) {
+    return missionRejectReason;
+  }
+
   if (score.beginnerPenalty >= 20) {
     return "Skipped because it reads as beginner Design System education for a mature enterprise team.";
   }
 
   if (score.marketingPenalty >= 10) {
     return "Skipped because it looks primarily like marketing or a sales page.";
-  }
-
-  if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(topics)) {
-    return "Skipped because AI Research lacks a direct Design System workflow connection.";
   }
 
   if (score.designSystemScore === 0 && score.workflowScore === 0) {
@@ -197,12 +272,14 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
     const topics = classifyCandidateTopics(candidate);
     const editorialScore = scoreEditorialCandidate(candidate, candidates);
     const topicGroup = topicGroupFor(candidate, topics.aiTopics, topics.designSystemTopics, topics.workflowTopics);
+    const missionMatch = missionMatchFor(candidate, editorialScore, topics);
     const baseDecision = {
       title: candidate.title,
       url: candidate.url,
       source: candidate.source,
       editorialScore,
       topicGroup,
+      ...missionMatch,
       aiTopics: topics.aiTopics,
       designSystemTopics: topics.designSystemTopics,
       workflowTopics: topics.workflowTopics

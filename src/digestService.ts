@@ -58,6 +58,8 @@ type CandidatePreview = {
   topicGroup: TopicGroup;
   selectedBecause: string;
   skippedBecause: string;
+  editorialMissionMatch: boolean;
+  missionReason: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -76,6 +78,8 @@ type SelectedPreview = {
   topicGroup?: TopicGroup;
   selectedBecause?: string;
   skippedBecause?: string;
+  editorialMissionMatch?: boolean;
+  missionReason?: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -247,6 +251,8 @@ function previewCandidates(candidates: CandidateResource[], decisions: Editorial
       topicGroup: decision?.topicGroup ?? "Other",
       selectedBecause: decision?.selectedBecause ?? "",
       skippedBecause: decision?.skippedBecause ?? "",
+      editorialMissionMatch: decision?.editorialMissionMatch ?? false,
+      missionReason: decision?.missionReason ?? "No editorial selection decision was available for this preview.",
       aiTopics: topics.aiTopics,
       designSystemTopics: topics.designSystemTopics,
       workflowTopics: topics.workflowTopics
@@ -275,6 +281,8 @@ function previewResources(resources: Resource[], decisions: EditorialSelectionDe
       topicGroup: decision?.topicGroup,
       selectedBecause: decision?.selectedBecause,
       skippedBecause: decision?.skippedBecause,
+      editorialMissionMatch: decision?.editorialMissionMatch,
+      missionReason: decision?.missionReason,
       aiTopics: classifyTopicsFromResource(resource).aiTopics,
       designSystemTopics: classifyTopicsFromResource(resource).designSystemTopics,
       workflowTopics: classifyTopicsFromResource(resource).workflowTopics,

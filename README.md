@@ -4,6 +4,10 @@ Generate a curated newsletter about AI applied to Design Systems.
 
 The curator does not use the LLM as a web search engine. It first collects candidate resources from predefined tiered sources, filters them with Design System keyword rules, scores them editorially, then uses an LLM only to rank and summarize the collected candidates. If no LLM key is configured, it returns a candidate-based fallback instead of invented resources.
 
+## Editorial Philosophy
+
+The permanent editorial contract for this project lives in [docs/EDITORIAL_CONSTITUTION.md](docs/EDITORIAL_CONSTITUTION.md). Future changes should preserve that philosophy: separate signal from noise where mature Design Systems meet AI.
+
 ## Setup
 
 ```bash

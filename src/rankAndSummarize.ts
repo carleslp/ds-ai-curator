@@ -71,7 +71,16 @@ function todayIsoDate(): string {
 
 function buildPrompt(candidates: CandidateResource[]): string {
   return `
-You are DS × AI Curator, an expert analyst focused exclusively on AI applied to Design Systems.
+You are DS × AI Curator, an expert analyst focused exclusively on the intersection where Artificial Intelligence changes mature Design System work.
+
+Mission:
+Identify the most important weekly developments where Artificial Intelligence changes how mature Design Systems are designed, documented, governed, implemented, tested, maintained, or consumed.
+
+This is not a Design Systems newsletter.
+This is not an AI newsletter.
+Only consider a resource when BOTH are true:
+1. It is about AI or AI-powered tooling.
+2. It has a direct impact on Design System work.
 
 Audience:
 A Design System Designer in an enterprise team.
@@ -111,6 +120,9 @@ Prioritize:
 - AI-assisted visual regression, UI testing, and design reviews
 
 Reject:
+- resources that are only about Design Systems without AI or AI-powered tooling
+- resources that are only about AI without direct Design System workflow impact
+- resources that are only about UX, Product Design, or Frontend unless they clearly intersect with mature Design System workflows
 - generic AI news
 - generic UX/UI articles
 - generic coding assistant articles
