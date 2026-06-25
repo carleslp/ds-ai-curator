@@ -36,6 +36,15 @@ type ScoredCandidate = {
 
 const targetGroups: TopicGroup[] = ["Storybook", "Figma", "AI Research", "Enterprise Practice", "Tooling"];
 const minimumEditorialScore = 30;
+const aiResearchDesignSystemTopics: DesignSystemTopic[] = [
+  "Figma",
+  "Storybook",
+  "Metadata",
+  "Design Tokens",
+  "Component APIs",
+  "Documentation"
+];
+const aiResearchAiTopics: AiTopic[] = ["Design-to-Code", "QA Automation", "Accessibility AI"];
 
 function textForCandidate(candidate: CandidateResource): string {
   return `${candidate.title} ${candidate.source} ${candidate.url} ${candidate.snippet} ${candidate.cleanSummary} ${candidate.rawText} ${candidate.directDesignSystemEvidence}`.toLowerCase();
@@ -93,13 +102,37 @@ function workflowImpactScore(score: EditorialScore, decisionTopics: Pick<Editori
   return score.workflowScore * 2 + score.enterpriseScore + score.practicalityScore + workflowBreadth;
 }
 
-function qualityRejection(candidate: CandidateResource, score: EditorialScore, topicGroup: TopicGroup): string {
+function hasAiResearchWorkflowConnection(
+  candidate: CandidateResource,
+  topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics">
+): boolean {
+  const text = textForCandidate(candidate);
+
+  return (
+    hasAnyTopic(topics.designSystemTopics, aiResearchDesignSystemTopics) ||
+    hasAnyTopic(topics.aiTopics, aiResearchAiTopics) ||
+    topics.workflowTopics.includes("Design QA") ||
+    text.includes("accessibility") ||
+    text.includes("component generation")
+  );
+}
+
+function qualityRejection(
+  candidate: CandidateResource,
+  score: EditorialScore,
+  topicGroup: TopicGroup,
+  topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics">
+): string {
   if (score.beginnerPenalty >= 20) {
     return "Skipped because it reads as beginner Design System education for a mature enterprise team.";
   }
 
   if (score.marketingPenalty >= 10) {
     return "Skipped because it looks primarily like marketing or a sales page.";
+  }
+
+  if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(candidate, topics)) {
+    return "Skipped because AI Research lacks a direct Design System workflow connection.";
   }
 
   if (score.designSystemScore === 0 && score.workflowScore === 0) {
@@ -173,7 +206,7 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       workflowTopics: topics.workflowTopics
     };
     const impactScore = workflowImpactScore(editorialScore, baseDecision);
-    const rejectionReason = qualityRejection(candidate, editorialScore, topicGroup);
+    const rejectionReason = qualityRejection(candidate, editorialScore, topicGroup, baseDecision);
 
     return {
       candidate,
