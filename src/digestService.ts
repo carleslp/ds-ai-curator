@@ -1,4 +1,8 @@
-import { collectCandidates, type CandidateResource } from "./collectCandidates.js";
+import {
+  collectCandidatesWithDiagnostics,
+  type CandidateResource,
+  type SourceResult
+} from "./collectCandidates.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import { editorialFinalScore, filterCandidates } from "./filterCandidates.js";
 import {
@@ -34,6 +38,7 @@ type DailyDigestResult = {
   filteredCandidateCount: number;
   selectedResourceCount: number;
   fallbackReason?: string;
+  sourceResults: SourceResult[];
   candidatesPreview: CandidatePreview[];
   selectedPreview: SelectedPreview[];
 };
@@ -226,22 +231,46 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
   let candidates: CandidateResource[] = [];
   let filteredCandidates: CandidateResource[] = [];
+  let fallbackCandidates: CandidateResource[] = [];
+  let sourceResults: SourceResult[] = [];
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
 
   try {
     console.log("Step 1: Candidate collection started.");
-    candidates = await collectCandidates();
+    const collectionResult = await collectCandidatesWithDiagnostics();
+    candidates = collectionResult.candidates;
+    sourceResults = collectionResult.sourceResults;
     console.log(`Step 2: Candidate collection completed (${candidates.length} candidates).`);
 
     filteredCandidates = filterCandidates(candidates);
     console.log(`Step 3: Candidate pre-filter completed (${filteredCandidates.length} candidates).`);
     filteredCandidates = filterRecentCandidates(filteredCandidates);
     console.log(`Step 3b: Recent-history filter completed (${filteredCandidates.length} candidates).`);
+    fallbackCandidates = filteredCandidates.length > 0 ? filteredCandidates : candidates;
+
+    if (candidates.length === 0) {
+      throw new Error("No candidates collected from configured sources.");
+    }
 
     if (filteredCandidates.length === 0) {
-      throw new Error("No relevant candidates after pre-filtering.");
+      console.error("No candidates survived pre-filtering; candidateFallback will use top collected candidates.");
+      const fallbackDigest = buildCandidateFallbackDigest(fallbackCandidates);
+      rememberDigest(fallbackDigest);
+      return {
+        digest: fallbackDigest,
+        mode: "candidateFallback",
+        hasOpenAIKey,
+        hasGeminiKey,
+        candidateCount: candidates.length,
+        filteredCandidateCount: 0,
+        selectedResourceCount: fallbackDigest.resources.length,
+        fallbackReason: "No candidates survived pre-filtering; used top collected candidates.",
+        sourceResults,
+        candidatesPreview: previewCandidates(candidates),
+        selectedPreview: previewResources(fallbackDigest.resources)
+      };
     }
 
     try {
@@ -261,6 +290,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateCount: candidates.length,
         filteredCandidateCount: filteredCandidates.length,
         selectedResourceCount: ranked.digest.resources.length,
+        sourceResults,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(ranked.digest.resources)
       };
@@ -268,7 +298,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       const fallbackReason = getErrorMessage(error);
       console.error(`LLM ranking failed: ${fallbackReason}`);
 
-      const fallbackDigest = buildCandidateFallbackDigest(filteredCandidates);
+      const fallbackDigest = buildCandidateFallbackDigest(fallbackCandidates);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
       if (fallbackDigest.resources.length > 0) {
@@ -282,6 +312,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           filteredCandidateCount: filteredCandidates.length,
           selectedResourceCount: fallbackDigest.resources.length,
           fallbackReason,
+          sourceResults,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: previewResources(fallbackDigest.resources)
         };
@@ -298,6 +329,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           filteredCandidateCount: filteredCandidates.length,
           selectedResourceCount: cachedDigest.resources.length,
           fallbackReason,
+          sourceResults,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: previewResources(cachedDigest.resources)
         };
@@ -312,6 +344,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         filteredCandidateCount: filteredCandidates.length,
         selectedResourceCount: 0,
         fallbackReason,
+        sourceResults,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: []
       };
@@ -331,6 +364,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         filteredCandidateCount: filteredCandidates.length,
         selectedResourceCount: cachedDigest.resources.length,
         fallbackReason,
+        sourceResults,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(cachedDigest.resources)
       };
@@ -346,6 +380,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       filteredCandidateCount: filteredCandidates.length,
       selectedResourceCount: 0,
       fallbackReason,
+      sourceResults,
       candidatesPreview: previewCandidates(candidates),
       selectedPreview: []
     };

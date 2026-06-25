@@ -50,6 +50,8 @@ const server = http.createServer(async (request, response) => {
       candidateCount: result.candidateCount,
       filteredCandidateCount: result.filteredCandidateCount,
       selectedResourceCount: result.selectedResourceCount,
+      resourceCount: result.selectedResourceCount,
+      sourceResults: result.sourceResults,
       candidatesPreview: result.candidatesPreview,
       selectedPreview: result.selectedPreview
     });
@@ -69,6 +71,7 @@ const server = http.createServer(async (request, response) => {
             candidateCount: result.candidateCount,
             filteredCandidateCount: result.filteredCandidateCount,
             selectedResourceCount: result.selectedResourceCount,
+            sourceResults: result.sourceResults,
             ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
           }
         }

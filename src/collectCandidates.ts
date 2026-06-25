@@ -17,6 +17,18 @@ export type CandidateResource = {
   worthYourTimeScore: number;
 };
 
+export type SourceResult = {
+  source: string;
+  success: boolean;
+  candidatesFound: number;
+  error: string | null;
+};
+
+export type CandidateCollectionResult = {
+  candidates: CandidateResource[];
+  sourceResults: SourceResult[];
+};
+
 type UnscoredCandidateResource = Omit<
   CandidateResource,
   | "relevanceScore"
@@ -187,6 +199,7 @@ async function fetchText(url: string): Promise<string> {
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html;q=0.9, */*;q=0.8",
         "User-Agent": "DS-AI-Curator/1.0"
       }
     });
@@ -202,8 +215,27 @@ async function fetchText(url: string): Promise<string> {
 }
 
 function textBetween(xml: string, tag: string): string | undefined {
-  const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  const escapedTag = tag.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const match = xml.match(new RegExp(`<${escapedTag}[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`, "i"));
   return match ? decodeEntities(stripTags(match[1])) : undefined;
+}
+
+function feedLink(block: string, sourceUrl: string): string | undefined {
+  const rssLink = textBetween(block, "link");
+  if (rssLink?.startsWith("http")) {
+    return rssLink;
+  }
+
+  const alternateLink =
+    block.match(/<link\b[^>]*rel=["']alternate["'][^>]*href=["']([^"']+)["'][^>]*\/?>/i)?.[1] ??
+    block.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*rel=["']alternate["'][^>]*\/?>/i)?.[1];
+
+  if (alternateLink) {
+    return absoluteUrl(alternateLink, sourceUrl);
+  }
+
+  const hrefLink = block.match(/<link\b[^>]*href=["']([^"']+)["'][^>]*\/?>/i)?.[1];
+  return hrefLink ? absoluteUrl(hrefLink, sourceUrl) : undefined;
 }
 
 function parseFeedItems(xml: string, source: CuratedSource): UnscoredCandidateResource[] {
@@ -215,17 +247,15 @@ function parseFeedItems(xml: string, source: CuratedSource): UnscoredCandidateRe
   return blocks
     .map((block): UnscoredCandidateResource | undefined => {
       const title = textBetween(block, "title");
-      const directLink = textBetween(block, "link");
-      const hrefLink = block.match(/<link[^>]+href=["']([^"']+)["']/i)?.[1];
-      const url = directLink?.startsWith("http")
-        ? directLink
-        : hrefLink
-          ? absoluteUrl(hrefLink, source.url)
-          : undefined;
+      const url = feedLink(block, source.url);
       const publishedDate =
         textBetween(block, "pubDate") ?? textBetween(block, "published") ?? textBetween(block, "updated");
       const snippet =
-        textBetween(block, "description") ?? textBetween(block, "summary") ?? textBetween(block, "content") ?? "";
+        textBetween(block, "description") ??
+        textBetween(block, "summary") ??
+        textBetween(block, "content:encoded") ??
+        textBetween(block, "content") ??
+        "";
 
       if (!title || !url) {
         return undefined;
@@ -322,23 +352,7 @@ function dedupeCandidates<T extends Pick<CandidateResource, "url" | "title">>(ca
   return deduped;
 }
 
-export async function collectCandidates(): Promise<CandidateResource[]> {
-  const settled = await Promise.allSettled(
-    curatedSources.map(async (source) => {
-      const body = await fetchText(source.url);
-      return parseSourceItems(body, source);
-    })
-  );
-
-  const candidates = settled.flatMap((result, index) => {
-    if (result.status === "fulfilled") {
-      return result.value;
-    }
-
-    console.error(`Candidate source failed: ${curatedSources[index].name} - ${result.reason}`);
-    return [];
-  });
-
+function finalizeCandidates(candidates: UnscoredCandidateResource[]): CandidateResource[] {
   return dedupeCandidates(candidates)
     .filter(isProbablyEnglish)
     .filter(isRecentEnough)
@@ -358,4 +372,51 @@ export async function collectCandidates(): Promise<CandidateResource[]> {
       return a.sourceTier - b.sourceTier;
     })
     .slice(0, maxCandidates);
+}
+
+export async function collectCandidatesWithDiagnostics(): Promise<CandidateCollectionResult> {
+  const settled = await Promise.allSettled(
+    curatedSources.map(async (source) => {
+      const body = await fetchText(source.url);
+      const sourceCandidates = parseSourceItems(body, source);
+      return { source, candidates: sourceCandidates };
+    })
+  );
+
+  const sourceResults: SourceResult[] = [];
+  const candidates = settled.flatMap((result, index): UnscoredCandidateResource[] => {
+    const source = curatedSources[index];
+
+    if (result.status === "fulfilled") {
+      const candidatesFound = result.value.candidates.length;
+      console.log(`Candidate source fetched: ${source.name} (${candidatesFound} candidates).`);
+      sourceResults.push({
+        source: source.name,
+        success: true,
+        candidatesFound,
+        error: null
+      });
+      return result.value.candidates;
+    }
+
+    const error = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    console.error(`Candidate source failed: ${source.name} - ${error}`);
+    sourceResults.push({
+      source: source.name,
+      success: false,
+      candidatesFound: 0,
+      error
+    });
+    return [];
+  });
+
+  return {
+    candidates: finalizeCandidates(candidates),
+    sourceResults
+  };
+}
+
+export async function collectCandidates(): Promise<CandidateResource[]> {
+  const { candidates } = await collectCandidatesWithDiagnostics();
+  return candidates;
 }

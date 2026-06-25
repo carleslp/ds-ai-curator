@@ -88,7 +88,16 @@ Each resource includes:
   "candidateCount": 30,
   "filteredCandidateCount": 12,
   "selectedResourceCount": 5,
+  "resourceCount": 5,
   "fallbackReason": "",
+  "sourceResults": [
+    {
+      "source": "Figma Blog",
+      "success": true,
+      "candidatesFound": 12,
+      "error": null
+    }
+  ],
   "candidatesPreview": [
     {
       "title": "",

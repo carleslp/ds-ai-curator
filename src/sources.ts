@@ -68,9 +68,9 @@ export const curatedSources: CuratedSource[] = [
   { name: "Chrome Developers", url: "https://developer.chrome.com/blog", kind: "html", tier: tier2, sourceScore: 4 },
   { name: "React Blog", url: "https://react.dev/blog", kind: "html", tier: tier2, sourceScore: 4 },
 
-  { name: "Medium Design Systems", url: "https://medium.com/tag/design-systems", kind: "html", tier: tier3, sourceScore: 3 },
-  { name: "Medium Figma", url: "https://medium.com/tag/figma", kind: "html", tier: tier3, sourceScore: 3 },
-  { name: "Medium Design Tokens", url: "https://medium.com/tag/design-tokens", kind: "html", tier: tier3, sourceScore: 3 },
+  { name: "Medium Design Systems", url: "https://medium.com/feed/tag/design-systems", kind: "rss", tier: tier3, sourceScore: 3 },
+  { name: "Medium Figma", url: "https://medium.com/feed/tag/figma", kind: "rss", tier: tier3, sourceScore: 3 },
+  { name: "Medium Design Tokens", url: "https://medium.com/feed/tag/design-tokens", kind: "rss", tier: tier3, sourceScore: 3 },
   { name: "TOOOLS.design", url: "https://www.toools.design/", kind: "html", tier: tier3, sourceScore: 3 },
   { name: "Product Disrupt", url: "https://productdisrupt.com/", kind: "html", tier: tier3, sourceScore: 3 },
   { name: "Dev.to Design Systems", url: "https://dev.to/t/designsystems", kind: "html", tier: tier3, sourceScore: 2 },
