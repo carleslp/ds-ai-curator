@@ -40,6 +40,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     rejectedCandidates: result.rejectedCandidates,
     candidatesPreview: result.candidatesPreview,
     selectedPreview: result.selectedPreview,
+    editorialSelection: result.editorialSelection,
     editorialScores: result.editorialScores,
     topicClassifications: result.topicClassifications
   });

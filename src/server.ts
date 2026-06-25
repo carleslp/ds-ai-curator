@@ -62,6 +62,7 @@ const server = http.createServer(async (request, response) => {
       rejectedCandidates: result.rejectedCandidates,
       candidatesPreview: result.candidatesPreview,
       selectedPreview: result.selectedPreview,
+      editorialSelection: result.editorialSelection,
       editorialScores: result.editorialScores,
       topicClassifications: result.topicClassifications
     });

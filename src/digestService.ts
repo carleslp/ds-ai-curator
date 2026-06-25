@@ -10,14 +10,17 @@ import {
   type EditorialScoredCandidate
 } from "./editorialEngine.js";
 import { withEditorialSections } from "./editorial.js";
+import {
+  selectEditorialCandidates,
+  type EditorialSelectionDecision,
+  type EditorialSelectionResult,
+  type TopicGroup
+} from "./editorialSelection.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
   aiEvidenceForText,
   designSystemEvidenceForText,
-  editorialFinalScore,
-  filterCandidatesWithDiagnostics,
-  maturityLevelForText,
-  type RejectedCandidate
+  maturityLevelForText
 } from "./filterCandidates.js";
 import {
   rankAndSummarizeWithGemini,
@@ -50,6 +53,11 @@ type CandidatePreview = {
   sourceScore: number;
   directDesignSystemEvidence: string;
   editorialScore: EditorialScore;
+  selectionReason: string;
+  rejectionReason: string;
+  topicGroup: TopicGroup;
+  selectedBecause: string;
+  skippedBecause: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -62,6 +70,12 @@ type SelectedPreview = {
   aiEvidence: string;
   designSystemEvidence: string;
   maturityLevel: "advanced" | "intermediate" | "basic";
+  editorialScore?: EditorialScore;
+  selectionReason?: string;
+  rejectionReason?: string;
+  topicGroup?: TopicGroup;
+  selectedBecause?: string;
+  skippedBecause?: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -80,11 +94,12 @@ type DailyDigestResult = {
   selectedResourceCount: number;
   fallbackReason?: string;
   sourceResults: SourceResult[];
-  rejectedCandidates: RejectedCandidate[];
+  rejectedCandidates: EditorialSelectionDecision[];
   candidatesPreview: CandidatePreview[];
   selectedPreview: SelectedPreview[];
   editorialScores: EditorialScoredCandidate[];
   topicClassifications: TopicClassification[];
+  editorialSelection: EditorialSelectionDecision[];
 };
 
 let cachedDigest: Digest | undefined;
@@ -171,111 +186,11 @@ function candidateToResource(candidate: CandidateResource): Resource {
   };
 }
 
-function hasReusableEditorialLearning(candidate: CandidateResource): boolean {
-  const text = `${candidate.title} ${candidate.source} ${candidate.url} ${candidate.cleanSummary} ${candidate.snippet}`.toLowerCase();
-  const releaseOnly = /\b(changelog|release notes)\b/.test(text) || /\breleases?\b/.test(candidate.source.toLowerCase());
-  const relevantStorybookRelease =
-    candidate.source.toLowerCase().includes("storybook") &&
-    [
-      "storybook ai",
-      "mcp",
-      "model context protocol",
-      "component manifest",
-      "docgen",
-      "ai checklist",
-      "component metadata",
-      "docs automation",
-      "documentation automation",
-      "qa automation",
-      "accessibility automation"
-    ].some((signal) => text.includes(signal));
-  const learningSignals = [
-    "workflow",
-    "guide",
-    "patterns",
-    "design system",
-    "design systems",
-    "design tokens",
-    "design-to-code",
-    "design to code",
-    "storybook",
-    "figma",
-    "figma metadata",
-    "ui code generation",
-    "component generation",
-    "production-ready ui",
-    "production ready ui",
-    "component reuse",
-    "design mockups to code",
-    "component api",
-    "component apis",
-    "mcp",
-    "agent",
-    "automation",
-    "documentation",
-    "accessibility",
-    "qa",
-    "testing",
-    "governance"
-  ];
-  const marketingSignals = ["pricing", "customer story", "case study", "book a demo", "contact sales"];
-  const hasLearningSignal = learningSignals.some((signal) => text.includes(signal));
-  const isMarketingPage = marketingSignals.some((signal) => text.includes(signal));
-
-  if (isMarketingPage) return false;
-  if (releaseOnly && !relevantStorybookRelease) return false;
-  if (!aiEvidenceForText(text)) return false;
-  if (!designSystemEvidenceForText(text)) return false;
-  if (maturityLevelForText(text) === "basic") return false;
-  return hasLearningSignal;
-}
-
-function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): Digest {
-  const rankedCandidates = [...filteredCandidates]
-    .filter(
-      (candidate) =>
-        candidate.relevanceScore >= 4 &&
-        candidate.worthYourTimeScore >= 4 &&
-        candidate.directDesignSystemEvidence.trim().length > 0 &&
-        hasReusableEditorialLearning(candidate)
-    )
-    .sort((a, b) => {
-      const scoreDifference = editorialFinalScore(b) - editorialFinalScore(a);
-      if (scoreDifference !== 0) return scoreDifference;
-      return b.recencyScore - a.recencyScore;
-    });
-  const selectedCandidates: CandidateResource[] = [];
-  const sourceCounts = new Map<string, number>();
-
-  for (const candidate of rankedCandidates) {
-    const sourceKey = candidate.source.toLowerCase();
-    const sourceCount = sourceCounts.get(sourceKey) ?? 0;
-    if (sourceCount >= 2) {
-      continue;
-    }
-
-    selectedCandidates.push(candidate);
-    sourceCounts.set(sourceKey, sourceCount + 1);
-
-    if (selectedCandidates.length === 5) {
-      break;
-    }
-  }
-
-  if (selectedCandidates.length < 5) {
-    for (const candidate of rankedCandidates) {
-      if (selectedCandidates.includes(candidate)) {
-        continue;
-      }
-
-      selectedCandidates.push(candidate);
-      if (selectedCandidates.length === 5) {
-        break;
-      }
-    }
-  }
-
-  const resources = selectedCandidates.map(candidateToResource);
+function buildCandidateFallbackDigest(selectionResult: EditorialSelectionResult): Digest {
+  const resources = selectionResult.selectedCandidates.map(candidateToResource);
+  const editorsPick = selectionResult.editorsPickCandidate
+    ? resources.find((resource) => normalizeUrl(resource.url) === normalizeUrl(selectionResult.editorsPickCandidate?.url ?? "")) ?? null
+    : null;
 
   return withEditorialSections({
     date: todayIsoDate(),
@@ -283,6 +198,7 @@ function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): 
       resources.length > 0
         ? "Curated from trusted Design System sources. Editorial ranking is running in fallback mode today."
         : "No mature Design System AI signals passed the editorial gate today.",
+    editorsPick,
     resources
   });
 }
@@ -308,9 +224,15 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] {
+function decisionsByUrl(decisions: EditorialSelectionDecision[]): Map<string, EditorialSelectionDecision> {
+  return new Map(decisions.map((decision) => [normalizeUrl(decision.url), decision]));
+}
+
+function previewCandidates(candidates: CandidateResource[], decisions: EditorialSelectionDecision[] = []): CandidatePreview[] {
+  const decisionMap = decisionsByUrl(decisions);
   return candidates.slice(0, 10).map((candidate) => {
     const topics = classifyCandidateTopics(candidate);
+    const decision = decisionMap.get(normalizeUrl(candidate.url));
 
     return {
       title: candidate.title,
@@ -319,7 +241,12 @@ function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] 
       published_date: candidate.published_date,
       sourceScore: candidate.sourceScore,
       directDesignSystemEvidence: candidate.directDesignSystemEvidence,
-      editorialScore: scoreEditorialCandidate(candidate, candidates),
+      editorialScore: decision?.editorialScore ?? scoreEditorialCandidate(candidate, candidates),
+      selectionReason: decision?.selectionReason ?? "",
+      rejectionReason: decision?.rejectionReason ?? "",
+      topicGroup: decision?.topicGroup ?? "Other",
+      selectedBecause: decision?.selectedBecause ?? "",
+      skippedBecause: decision?.skippedBecause ?? "",
       aiTopics: topics.aiTopics,
       designSystemTopics: topics.designSystemTopics,
       workflowTopics: topics.workflowTopics
@@ -327,11 +254,13 @@ function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] 
   });
 }
 
-function previewResources(resources: Resource[]): SelectedPreview[] {
+function previewResources(resources: Resource[], decisions: EditorialSelectionDecision[] = []): SelectedPreview[] {
+  const decisionMap = decisionsByUrl(decisions);
   return resources.map((resource) => {
     const text = `${resource.title} ${resource.source} ${resource.summary} ${resource.cleanSummary ?? ""} ${
       resource.directDesignSystemEvidence ?? ""
     }`;
+    const decision = decisionMap.get(normalizeUrl(resource.url));
 
     return {
       title: resource.title,
@@ -340,6 +269,12 @@ function previewResources(resources: Resource[]): SelectedPreview[] {
       aiEvidence: aiEvidenceForText(text),
       designSystemEvidence: designSystemEvidenceForText(text),
       maturityLevel: maturityLevelForText(text),
+      editorialScore: decision?.editorialScore,
+      selectionReason: decision?.selectionReason,
+      rejectionReason: decision?.rejectionReason,
+      topicGroup: decision?.topicGroup,
+      selectedBecause: decision?.selectedBecause,
+      skippedBecause: decision?.skippedBecause,
       aiTopics: classifyTopicsFromResource(resource).aiTopics,
       designSystemTopics: classifyTopicsFromResource(resource).designSystemTopics,
       workflowTopics: classifyTopicsFromResource(resource).workflowTopics,
@@ -348,6 +283,17 @@ function previewResources(resources: Resource[]): SelectedPreview[] {
       directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
     };
   });
+}
+
+function applyWorkflowImpactEditorsPick(digest: Digest, selectionResult: EditorialSelectionResult): Digest {
+  const pickUrl = selectionResult.editorsPickCandidate ? normalizeUrl(selectionResult.editorsPickCandidate.url) : "";
+  if (!pickUrl) return digest;
+
+  const editorsPick = digest.resources.find((resource) => normalizeUrl(resource.url) === pickUrl) ?? digest.editorsPick;
+  return {
+    ...digest,
+    editorsPick
+  };
 }
 
 function classifyTopicsFromResource(resource: Resource): Pick<TopicClassification, "aiTopics" | "designSystemTopics" | "workflowTopics"> {
@@ -398,10 +344,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   const hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
   let candidates: CandidateResource[] = [];
-  let filteredCandidates: CandidateResource[] = [];
-  let fallbackCandidates: CandidateResource[] = [];
+  let candidatePool: CandidateResource[] = [];
+  let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
   let sourceResults: SourceResult[] = [];
-  let rejectedCandidates: RejectedCandidate[] = [];
+  let rejectedCandidates: EditorialSelectionDecision[] = [];
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
@@ -413,51 +359,53 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     sourceResults = collectionResult.sourceResults;
     console.log(`Step 2: Candidate collection completed (${candidates.length} candidates).`);
 
-    const filterResult = filterCandidatesWithDiagnostics(candidates);
-    filteredCandidates = filterResult.accepted;
-    rejectedCandidates = filterResult.rejected;
-    console.log(`Step 3: Candidate pre-filter completed (${filteredCandidates.length} candidates).`);
-    filteredCandidates = filterRecentCandidates(filteredCandidates);
-    console.log(`Step 3b: Recent-history filter completed (${filteredCandidates.length} candidates).`);
-    fallbackCandidates = filteredCandidates;
+    candidatePool = filterRecentCandidates(candidates);
+    console.log(`Step 3: Candidate normalization/recent-history pass completed (${candidatePool.length} candidates).`);
+    console.log("Step 4: Topic classification and editorial scoring started.");
+    selectionResult = selectEditorialCandidates(candidatePool);
+    rejectedCandidates = selectionResult.rejectedDecisions;
+    console.log(
+      `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
+    );
 
     if (candidates.length === 0) {
       throw new Error("No candidates collected from configured sources.");
     }
 
-    if (filteredCandidates.length === 0) {
-      console.error("No candidates survived strict pre-filtering; candidateFallback will return fewer or zero resources.");
-      const fallbackDigest = buildCandidateFallbackDigest(fallbackCandidates);
+    if (selectionResult.selectedCandidates.length === 0) {
+      console.error("No candidates survived editorial selection; returning a clean empty-selection digest.");
+      const fallbackDigest = buildCandidateFallbackDigest(selectionResult);
       if (fallbackDigest.resources.length > 0) {
         rememberDigest(fallbackDigest);
       }
       return {
         digest: fallbackDigest,
-        mode: "candidateFallback",
+        mode: "candidateFallbackEmptySelection",
         hasOpenAIKey,
         hasGeminiKey,
         candidateCount: candidates.length,
-        filteredCandidateCount: 0,
+        filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
-        fallbackReason: "No candidates survived strict pre-filtering.",
+        fallbackReason: "No candidates survived editorial selection.",
         sourceResults,
         rejectedCandidates,
-        candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(fallbackDigest.resources),
+        candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
+        selectedPreview: previewResources(fallbackDigest.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
-        topicClassifications: classifyCandidatesTopics(candidates)
+        topicClassifications: classifyCandidatesTopics(candidates),
+        editorialSelection: selectionResult.decisions
       };
     }
 
     try {
-      console.log("Step 4: LLM ranking/summarization started.");
-      const ranked = await rankWithAvailableProvider(filteredCandidates);
-      const editorialDigest = withEditorialSections(ranked.digest);
-      console.log(`Step 5: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
+      console.log("Step 6: LLM ranking/summarization started.");
+      const ranked = await rankWithAvailableProvider(selectionResult.selectedCandidates);
+      const editorialDigest = applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult);
+      console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
 
       cachedDigest = editorialDigest;
       rememberDigest(editorialDigest);
-      console.log("Step 6: Digest cached.");
+      console.log("Step 8: Digest cached.");
 
       return {
         digest: editorialDigest,
@@ -465,20 +413,21 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         candidateCount: candidates.length,
-        filteredCandidateCount: filteredCandidates.length,
+        filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
         sourceResults,
         rejectedCandidates,
-        candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(editorialDigest.resources),
+        candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
+        selectedPreview: previewResources(editorialDigest.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
-        topicClassifications: classifyCandidatesTopics(candidates)
+        topicClassifications: classifyCandidatesTopics(candidates),
+        editorialSelection: selectionResult.decisions
       };
     } catch (error) {
       const fallbackReason = getErrorMessage(error);
       console.error(`LLM ranking failed: ${fallbackReason}`);
 
-      const fallbackDigest = buildCandidateFallbackDigest(fallbackCandidates);
+      const fallbackDigest = buildCandidateFallbackDigest(selectionResult);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
       if (fallbackDigest.resources.length > 0) {
@@ -489,19 +438,20 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hasOpenAIKey,
           hasGeminiKey,
           candidateCount: candidates.length,
-          filteredCandidateCount: filteredCandidates.length,
+          filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
           fallbackReason,
           sourceResults,
           rejectedCandidates,
-          candidatesPreview: previewCandidates(candidates),
-          selectedPreview: previewResources(fallbackDigest.resources),
+          candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
+          selectedPreview: previewResources(fallbackDigest.resources, selectionResult.decisions),
           editorialScores: scoreEditorialCandidates(candidates),
-          topicClassifications: classifyCandidatesTopics(candidates)
+          topicClassifications: classifyCandidatesTopics(candidates),
+          editorialSelection: selectionResult.decisions
         };
       }
 
-      if (filteredCandidates.length > 0) {
+      if (candidatePool.length > 0) {
         const emptyDigest = createEmptySelectionDigest();
         console.error("Daily digest mode: candidateFallbackEmptySelection.");
         return {
@@ -510,15 +460,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hasOpenAIKey,
           hasGeminiKey,
           candidateCount: candidates.length,
-          filteredCandidateCount: filteredCandidates.length,
+          filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
           fallbackReason,
           sourceResults,
           rejectedCandidates,
-          candidatesPreview: previewCandidates(candidates),
+          candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
           selectedPreview: [],
           editorialScores: scoreEditorialCandidates(candidates),
-          topicClassifications: classifyCandidatesTopics(candidates)
+          topicClassifications: classifyCandidatesTopics(candidates),
+          editorialSelection: selectionResult.decisions
         };
       }
 
@@ -530,15 +481,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hasOpenAIKey,
           hasGeminiKey,
           candidateCount: candidates.length,
-          filteredCandidateCount: filteredCandidates.length,
+          filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigest.resources.length,
           fallbackReason,
           sourceResults,
           rejectedCandidates,
-          candidatesPreview: previewCandidates(candidates),
-          selectedPreview: previewResources(cachedDigest.resources),
+          candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
+          selectedPreview: previewResources(cachedDigest.resources, selectionResult.decisions),
           editorialScores: scoreEditorialCandidates(candidates),
-          topicClassifications: classifyCandidatesTopics(candidates)
+          topicClassifications: classifyCandidatesTopics(candidates),
+          editorialSelection: selectionResult.decisions
         };
       }
 
@@ -548,22 +500,23 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         candidateCount: candidates.length,
-        filteredCandidateCount: filteredCandidates.length,
+        filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
         fallbackReason,
         sourceResults,
         rejectedCandidates,
-        candidatesPreview: previewCandidates(candidates),
+        candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: [],
         editorialScores: scoreEditorialCandidates(candidates),
-        topicClassifications: classifyCandidatesTopics(candidates)
+        topicClassifications: classifyCandidatesTopics(candidates),
+        editorialSelection: selectionResult.decisions
       };
     }
   } catch (error) {
     const fallbackReason = getErrorMessage(error);
     console.error(`Candidate pipeline failed: ${fallbackReason}`);
 
-    if (filteredCandidates.length > 0) {
+    if (candidatePool.length > 0) {
       const emptyDigest = createEmptySelectionDigest();
       console.error("Daily digest mode: candidateFallbackEmptySelection.");
       return {
@@ -572,15 +525,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         candidateCount: candidates.length,
-        filteredCandidateCount: filteredCandidates.length,
+        filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
         fallbackReason,
         sourceResults,
         rejectedCandidates,
-        candidatesPreview: previewCandidates(candidates),
+        candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: [],
         editorialScores: scoreEditorialCandidates(candidates),
-        topicClassifications: classifyCandidatesTopics(candidates)
+        topicClassifications: classifyCandidatesTopics(candidates),
+        editorialSelection: selectionResult.decisions
       };
     }
 
@@ -592,15 +546,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         candidateCount: candidates.length,
-        filteredCandidateCount: filteredCandidates.length,
+        filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigest.resources.length,
         fallbackReason,
         sourceResults,
         rejectedCandidates,
-        candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(cachedDigest.resources),
+        candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
+        selectedPreview: previewResources(cachedDigest.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
-        topicClassifications: classifyCandidatesTopics(candidates)
+        topicClassifications: classifyCandidatesTopics(candidates),
+        editorialSelection: selectionResult.decisions
       };
     }
 
@@ -611,15 +566,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hasOpenAIKey,
       hasGeminiKey,
       candidateCount: candidates.length,
-      filteredCandidateCount: filteredCandidates.length,
+      filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,
       fallbackReason,
       sourceResults,
       rejectedCandidates,
-      candidatesPreview: previewCandidates(candidates),
+      candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
       selectedPreview: [],
       editorialScores: scoreEditorialCandidates(candidates),
-      topicClassifications: classifyCandidatesTopics(candidates)
+      topicClassifications: classifyCandidatesTopics(candidates),
+      editorialSelection: selectionResult.decisions
     };
   }
 }
