@@ -9,6 +9,12 @@ export type RejectedCandidate = {
   aiEvidence: string;
   designSystemEvidence: string;
   maturityLevel: "advanced" | "intermediate" | "basic";
+  missingAiEvidence: boolean;
+  missingWorkflowEvidence: boolean;
+  basicContent: boolean;
+  genericMcp: boolean;
+  genericMarketing: boolean;
+  releaseNoteWithoutRelevantAI: boolean;
   relevance_score: number;
   worth_your_time_score: number;
 };
@@ -278,6 +284,16 @@ const matureWorkflowAnchors = [
   "storybook",
   "figma library",
   "figma components",
+  "figma metadata",
+  "ui code generation",
+  "component generation",
+  "production-ready ui",
+  "production ready ui",
+  "component reuse",
+  "design mockups to code",
+  "component api",
+  "component apis",
+  "ui implementation",
   "code connect",
   "design qa",
   "governance",
@@ -320,6 +336,39 @@ const advancedAiSignals = [
   "copilot"
 ];
 
+const designToCodeWorkflowCompanions = [
+  "figma",
+  "figma metadata",
+  "ui code generation",
+  "component generation",
+  "production-ready ui",
+  "production ready ui",
+  "component reuse",
+  "design mockups to code",
+  "storybook",
+  "component api",
+  "component apis",
+  "ui implementation",
+  "react",
+  "react native"
+];
+
+const storybookReleaseAiSignals = [
+  "storybook ai",
+  "mcp",
+  "model context protocol",
+  "component manifest",
+  "docgen",
+  "ai checklist",
+  "component metadata",
+  "docs automation",
+  "documentation automation",
+  "qa automation",
+  "accessibility automation"
+];
+
+const marketingSignals = ["pricing", "customer story", "case study", "book a demo", "contact sales", "webinar"];
+
 function haystack(candidate: CandidateResource): string {
   return ` ${candidate.title} ${candidate.source} ${candidate.snippet} ${candidate.rawText} `.toLowerCase();
 }
@@ -349,16 +398,25 @@ export function aiEvidenceForText(text: string): string {
 export function designSystemEvidenceForText(text: string): string {
   const normalized = ` ${text.toLowerCase()} `;
   const match = firstMatch(normalized, matureWorkflowAnchors);
-  return match ? `Matched Design System workflow anchor: ${match.trim()}` : "";
+  if (match) return `Matched Design System workflow anchor: ${match.trim()}`;
+
+  const hasDesignToCode = normalized.includes("design-to-code") || normalized.includes("design to code");
+  const designToCodeCompanion = firstMatch(normalized, designToCodeWorkflowCompanions);
+  if (hasDesignToCode && designToCodeCompanion) {
+    return `Matched mature implementation workflow: design-to-code + ${designToCodeCompanion.trim()}`;
+  }
+
+  return "";
 }
 
 export function maturityLevelForText(text: string): "advanced" | "intermediate" | "basic" {
   const normalized = ` ${text.toLowerCase()} `;
   const hasBeginnerSignal = containsAny(normalized, beginnerSignals);
   const hasAdvancedSignal = containsAny(normalized, advancedAiSignals);
+  const hasWorkflowEvidence = Boolean(designSystemEvidenceForText(normalized));
 
   if (hasBeginnerSignal && !hasAdvancedSignal) return "basic";
-  if (hasAdvancedSignal && containsAny(normalized, matureWorkflowAnchors)) return "advanced";
+  if (hasAdvancedSignal && hasWorkflowEvidence) return "advanced";
   return "intermediate";
 }
 
@@ -420,6 +478,50 @@ function isGenericDesignSystemLandingPage(candidate: CandidateResource): boolean
   }
 }
 
+function isReleaseNote(candidate: CandidateResource): boolean {
+  const source = candidate.source.toLowerCase();
+  const content = candidateContent(candidate);
+  return /\b(changelog|release notes?)\b/.test(content) || /\breleases?\b/.test(source);
+}
+
+function isStorybookRelease(candidate: CandidateResource): boolean {
+  const source = candidate.source.toLowerCase();
+  const content = candidateContent(candidate);
+  return source.includes("storybook") && isReleaseNote(candidate) && content.includes("storybook");
+}
+
+function hasRelevantStorybookReleaseAi(candidate: CandidateResource): boolean {
+  return containsAny(candidateContent(candidate), storybookReleaseAiSignals);
+}
+
+function isGenericMcpCandidate(candidate: CandidateResource): boolean {
+  const content = candidateContent(candidate);
+  const hasMcpOrAgent = containsAny(content, genericMcpOrAgentSignals);
+  const hasUiWorkflow =
+    containsAny(content, matureWorkflowAnchors) ||
+    containsAny(content, designToCodeWorkflowCompanions) ||
+    content.includes("ui implementation");
+
+  return hasMcpOrAgent && !hasUiWorkflow;
+}
+
+function isGenericMarketingCandidate(candidate: CandidateResource): boolean {
+  return containsAny(candidateContent(candidate), marketingSignals);
+}
+
+function rejectionFlags(candidate: CandidateResource) {
+  const text = haystack(candidate);
+  const maturityLevel = maturityLevelForText(text);
+  return {
+    missingAiEvidence: !aiEvidenceForText(text),
+    missingWorkflowEvidence: !designSystemEvidenceForText(text),
+    basicContent: maturityLevel === "basic",
+    genericMcp: isGenericMcpCandidate(candidate),
+    genericMarketing: isGenericMarketingCandidate(candidate),
+    releaseNoteWithoutRelevantAI: isReleaseNote(candidate) && !hasRelevantStorybookReleaseAi(candidate)
+  };
+}
+
 function hasStrongFigmaDesignSystemAngle(candidate: CandidateResource): boolean {
   const primaryContent = candidatePrimaryContent(candidate);
   const hasDesignSystem = primaryContent.includes("design system") || primaryContent.includes("design systems");
@@ -440,20 +542,37 @@ function rejectionReason(candidate: CandidateResource): string | undefined {
   const aiEvidence = aiEvidenceForText(text);
   const designSystemEvidence = designSystemEvidenceForText(text);
   const maturityLevel = maturityLevelForText(text);
+  const flags = rejectionFlags(candidate);
   const hasHighPriorityKeyword = containsAny(text, highPriorityKeywords);
   const hasDirectEvidence = candidate.directDesignSystemEvidence.trim().length > 0;
   const hasDirectDesignSystemSignal = containsAny(text, directDesignSystemSignals);
 
-  if (!aiEvidence) {
+  if (flags.missingAiEvidence) {
     return "Rejected because no AI relevance anchor was found for a mature Design System workflow.";
   }
 
-  if (!designSystemEvidence) {
+  if (flags.missingWorkflowEvidence) {
     return "Rejected because no Design System workflow anchor was found.";
   }
 
-  if (maturityLevel === "basic") {
+  if (flags.basicContent) {
     return "Rejected beginner/basic Design System education; mature enterprise DS teams need advanced AI, automation, validation, governance, or integration signals.";
+  }
+
+  if (flags.genericMcp) {
+    return "Rejected generic MCP/agent item without UI implementation or Design System workflow evidence.";
+  }
+
+  if (flags.genericMarketing) {
+    return "Rejected generic marketing page without reusable mature Design System learning.";
+  }
+
+  if (isReleaseNote(candidate) && !isStorybookRelease(candidate)) {
+    return "Rejected release note/changelog outside a relevant Storybook AI/MCP/component workflow.";
+  }
+
+  if (isStorybookRelease(candidate) && flags.releaseNoteWithoutRelevantAI) {
+    return "Rejected Storybook release note without explicit Storybook AI, MCP, component manifest, docgen, AI checklist, component metadata, docs automation, QA, or accessibility automation.";
   }
 
   if (isGitHubTopicPage(candidate)) {
@@ -556,6 +675,7 @@ export function filterCandidatesWithDiagnostics(candidates: CandidateResource[])
         aiEvidence: aiEvidenceForText(haystack(candidate)),
         designSystemEvidence: designSystemEvidenceForText(haystack(candidate)),
         maturityLevel: maturityLevelForText(haystack(candidate)),
+        ...rejectionFlags(candidate),
         relevance_score: candidate.relevanceScore,
         worth_your_time_score: candidate.worthYourTimeScore
       });

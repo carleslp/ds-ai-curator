@@ -118,6 +118,7 @@ Reject:
 - resources that contain no new reusable learning
 - resources that duplicate another selected resource
 - beginner/basic Design System content such as "101", "basics", "beginner", "introduction", "getting started", "building blocks", "guide to design tokens", "what are design tokens", "typography as a system", or "motion design tokens" unless it explicitly discusses AI, MCP, agents, automation, design-to-code, Storybook integration, QA automation, or token intelligence
+- Storybook release notes unless they explicitly mention Storybook AI, MCP, component manifest, docgen, AI checklist, component metadata, docs automation, QA automation, or accessibility automation
 
 For every candidate ask:
 1. Would this help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow?
@@ -179,7 +180,10 @@ Rules:
 - For Figma sources, only select when there is design systems plus AI/MCP/agent/code/tokens/component generation, Figma + MCP + design systems, Figma + design-to-code, Figma + Code Connect, or Figma + component generation.
 - Reject the resource if directDesignSystemEvidence would be empty.
 - Every selected resource must include at least one AI anchor: AI, artificial intelligence, LLM, agent, MCP, automation, generative, design-to-code, code generation, QA automation, accessibility automation, AI-assisted, machine-readable, RAG, or Copilot.
-- Every selected resource must include at least one Design System workflow anchor: design system, design systems, design tokens, component library, Storybook, Figma library, Figma components, Code Connect, design QA, governance, documentation, accessibility, React, or React Native.
+- Every selected resource must include at least one Design System workflow anchor: design system, design systems, design tokens, component library, Storybook, Figma library, Figma components, Figma metadata, UI code generation, component generation, production-ready UI, component reuse, design mockups to code, component APIs, UI implementation, Code Connect, design QA, governance, documentation, accessibility, React, or React Native.
+- Treat design-to-code as a valid mature Design System workflow when it explicitly involves Figma metadata, UI code generation, component generation, production-ready UI, component reuse, design mockups to code, Storybook, component APIs, React, or React Native.
+- Do not require the literal phrase "design system" when the resource clearly affects mature DS workflows through Storybook component metadata, Figma metadata, design-to-code, token automation, component generation, QA automation, accessibility automation, documentation automation, or AI agents consuming component APIs.
+- Figma2Code-style resources should pass when they connect Figma, design-to-code, LLM/automation, and UI implementation workflow.
 - Reject resources with maturityLevel "basic"; prefer advanced signals about improving, automating, validating, governing, or integrating mature Design System workflows.
 - If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
@@ -314,11 +318,31 @@ function assertSelectedFromCandidates(resources: RankedDigest["resources"], cand
   const urls = new Set(candidates.map((candidate) => candidate.url));
   const invalid = resources.filter((resource) => !urls.has(resource.url));
   const normalizedTitles = resources.map((resource) => resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+  const storybookReleaseSignals = [
+    "storybook ai",
+    "mcp",
+    "model context protocol",
+    "component manifest",
+    "docgen",
+    "ai checklist",
+    "component metadata",
+    "docs automation",
+    "documentation automation",
+    "qa automation",
+    "accessibility automation"
+  ];
   const lowQuality = resources.filter(
     (resource) => {
       const text = `${resource.title} ${resource.source} ${resource.url} ${resource.summary} ${
         resource.design_system_angle
       } ${resource.directDesignSystemEvidence}`.toLowerCase();
+      const isReleaseNote = /(^|\s)(changelog|release notes?|releases?)(\s|$)/i.test(
+        `${resource.title} ${resource.source} ${resource.url}`
+      );
+      const relevantStorybookRelease =
+        isReleaseNote &&
+        text.includes("storybook") &&
+        storybookReleaseSignals.some((signal) => text.includes(signal));
 
       return (
         resource.relevance_score < 4 ||
@@ -327,7 +351,7 @@ function assertSelectedFromCandidates(resources: RankedDigest["resources"], cand
         !aiEvidenceForText(text) ||
         !designSystemEvidenceForText(text) ||
         maturityLevelForText(text) === "basic" ||
-        /(^|\s)(changelog|release notes)(\s|$)/i.test(`${resource.title} ${resource.source} ${resource.url}`) ||
+        (isReleaseNote && !relevantStorybookRelease) ||
         normalizedTitles.filter((title) => title === resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())
           .length > 1
       );

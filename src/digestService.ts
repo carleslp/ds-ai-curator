@@ -20,7 +20,13 @@ import {
 } from "./rankAndSummarize.js";
 import { truncateText } from "./textUtils.js";
 
-type DigestMode = "liveOpenAI" | "liveGemini" | "candidateFallback" | "cachedDigest" | "emergencyFallback";
+type DigestMode =
+  | "liveOpenAI"
+  | "liveGemini"
+  | "candidateFallback"
+  | "candidateFallbackEmptySelection"
+  | "cachedDigest"
+  | "emergencyFallback";
 
 type CandidatePreview = {
   title: string;
@@ -83,6 +89,14 @@ function createEmergencyFallbackDigest(): Digest {
   });
 }
 
+function createEmptySelectionDigest(): Digest {
+  return withEditorialSections({
+    date: todayIsoDate(),
+    trend_summary: "No strong resources today. Curated sources were checked, but none passed the mature Design System AI editorial gate.",
+    resources: []
+  });
+}
+
 function normalizeUrl(url: string): string {
   return url.replace(/[#?].*$/, "").replace(/\/$/, "");
 }
@@ -137,6 +151,21 @@ function candidateToResource(candidate: CandidateResource): Resource {
 function hasReusableEditorialLearning(candidate: CandidateResource): boolean {
   const text = `${candidate.title} ${candidate.source} ${candidate.url} ${candidate.cleanSummary} ${candidate.snippet}`.toLowerCase();
   const releaseOnly = /\b(changelog|release notes)\b/.test(text) || /\breleases?\b/.test(candidate.source.toLowerCase());
+  const relevantStorybookRelease =
+    candidate.source.toLowerCase().includes("storybook") &&
+    [
+      "storybook ai",
+      "mcp",
+      "model context protocol",
+      "component manifest",
+      "docgen",
+      "ai checklist",
+      "component metadata",
+      "docs automation",
+      "documentation automation",
+      "qa automation",
+      "accessibility automation"
+    ].some((signal) => text.includes(signal));
   const learningSignals = [
     "workflow",
     "guide",
@@ -144,8 +173,19 @@ function hasReusableEditorialLearning(candidate: CandidateResource): boolean {
     "design system",
     "design systems",
     "design tokens",
+    "design-to-code",
+    "design to code",
     "storybook",
     "figma",
+    "figma metadata",
+    "ui code generation",
+    "component generation",
+    "production-ready ui",
+    "production ready ui",
+    "component reuse",
+    "design mockups to code",
+    "component api",
+    "component apis",
     "mcp",
     "agent",
     "automation",
@@ -160,7 +200,7 @@ function hasReusableEditorialLearning(candidate: CandidateResource): boolean {
   const isMarketingPage = marketingSignals.some((signal) => text.includes(signal));
 
   if (isMarketingPage) return false;
-  if (releaseOnly) return false;
+  if (releaseOnly && !relevantStorybookRelease) return false;
   if (!aiEvidenceForText(text)) return false;
   if (!designSystemEvidenceForText(text)) return false;
   if (maturityLevelForText(text) === "basic") return false;
@@ -400,6 +440,25 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         };
       }
 
+      if (filteredCandidates.length > 0) {
+        const emptyDigest = createEmptySelectionDigest();
+        console.error("Daily digest mode: candidateFallbackEmptySelection.");
+        return {
+          digest: emptyDigest,
+          mode: "candidateFallbackEmptySelection",
+          hasOpenAIKey,
+          hasGeminiKey,
+          candidateCount: candidates.length,
+          filteredCandidateCount: filteredCandidates.length,
+          selectedResourceCount: 0,
+          fallbackReason,
+          sourceResults,
+          rejectedCandidates,
+          candidatesPreview: previewCandidates(candidates),
+          selectedPreview: []
+        };
+      }
+
       if (cachedDigest) {
         console.error("Daily digest mode: cachedDigest.");
         return {
@@ -436,6 +495,25 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   } catch (error) {
     const fallbackReason = getErrorMessage(error);
     console.error(`Candidate pipeline failed: ${fallbackReason}`);
+
+    if (filteredCandidates.length > 0) {
+      const emptyDigest = createEmptySelectionDigest();
+      console.error("Daily digest mode: candidateFallbackEmptySelection.");
+      return {
+        digest: emptyDigest,
+        mode: "candidateFallbackEmptySelection",
+        hasOpenAIKey,
+        hasGeminiKey,
+        candidateCount: candidates.length,
+        filteredCandidateCount: filteredCandidates.length,
+        selectedResourceCount: 0,
+        fallbackReason,
+        sourceResults,
+        rejectedCandidates,
+        candidatesPreview: previewCandidates(candidates),
+        selectedPreview: []
+      };
+    }
 
     if (cachedDigest) {
       console.error("Daily digest mode: cachedDigest.");
