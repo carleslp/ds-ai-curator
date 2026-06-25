@@ -315,6 +315,10 @@ function parseFeedItems(xml: string, source: CuratedSource): UnscoredCandidateRe
       const cleanSummary = isStorybookRelease ? summarizeReleaseText(rawSnippet) : truncateText(rawSnippet, 280);
       const displayTitle = isStorybookRelease ? `Storybook release: ${title}` : title;
 
+      if (isStorybookRelease && !cleanSummary) {
+        return undefined;
+      }
+
       return {
         title: displayTitle,
         url,

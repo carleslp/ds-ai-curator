@@ -66,6 +66,5 @@ export function summarizeReleaseText(value: unknown, maxLength = 280): string {
     const lower = sentence.toLowerCase();
     return releaseRelevantKeywords.some((keyword) => lower.includes(keyword));
   });
-  const selected = relevant.length > 0 ? relevant : sentences;
-  return truncateText(selected.slice(0, 3).join(" "), maxLength);
+  return truncateText(relevant.slice(0, 3).join(" "), maxLength);
 }

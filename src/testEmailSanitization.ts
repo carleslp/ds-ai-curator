@@ -62,3 +62,40 @@ assert.match(html, /Storybook AI docs for MCP component testing/i);
 assert.doesNotMatch(html, /&lt;h2|&lt;ul|&lt;li|data-hovercard|pull request metadata/i);
 
 console.log("Email sanitization test passed.");
+
+globalThis.fetch = async (input: string | URL | Request) => {
+  const sourceUrl = String(input);
+  const body = `<?xml version="1.0"?>
+<feed>
+  <entry>
+    <title>v10.5.0-alpha.8</title>
+    <link rel="alternate" href="${sourceUrl}/release/v10.5.0-alpha.8" />
+    <updated>2026-06-25T11:00:00Z</updated>
+    <content type="html"><![CDATA[
+      <h2>What's Changed</h2>
+      <ul>
+        <li>Dependency bump by @dependabot.</li>
+        <li>Fix unrelated build scripts.</li>
+      </ul>
+    ]]></content>
+  </entry>
+</feed>`;
+
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "application/atom+xml" }
+  });
+};
+
+const irrelevantResult = await collectCandidatesWithDiagnostics();
+const irrelevantStorybookRelease = irrelevantResult.candidates.find(
+  (candidate) => candidate.source === "Storybook Releases"
+);
+
+assert.equal(
+  irrelevantStorybookRelease,
+  undefined,
+  "Expected irrelevant GitHub release to be rejected before candidate selection."
+);
+
+console.log("Irrelevant GitHub release rejection test passed.");
