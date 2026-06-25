@@ -3,6 +3,12 @@ import {
   type CandidateResource,
   type SourceResult
 } from "./collectCandidates.js";
+import {
+  scoreEditorialCandidate,
+  scoreEditorialCandidates,
+  type EditorialScore,
+  type EditorialScoredCandidate
+} from "./editorialEngine.js";
 import { withEditorialSections } from "./editorial.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
@@ -35,6 +41,7 @@ type CandidatePreview = {
   published_date: string;
   sourceScore: number;
   directDesignSystemEvidence: string;
+  editorialScore: EditorialScore;
 };
 
 type SelectedPreview = {
@@ -62,6 +69,7 @@ type DailyDigestResult = {
   rejectedCandidates: RejectedCandidate[];
   candidatesPreview: CandidatePreview[];
   selectedPreview: SelectedPreview[];
+  editorialScores: EditorialScoredCandidate[];
 };
 
 let cachedDigest: Digest | undefined;
@@ -292,7 +300,8 @@ function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] 
     source: candidate.source,
     published_date: candidate.published_date,
     sourceScore: candidate.sourceScore,
-    directDesignSystemEvidence: candidate.directDesignSystemEvidence
+    directDesignSystemEvidence: candidate.directDesignSystemEvidence,
+    editorialScore: scoreEditorialCandidate(candidate, candidates)
   }));
 }
 
@@ -388,7 +397,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(fallbackDigest.resources)
+        selectedPreview: previewResources(fallbackDigest.resources),
+        editorialScores: scoreEditorialCandidates(candidates)
       };
     }
 
@@ -413,7 +423,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(editorialDigest.resources)
+        selectedPreview: previewResources(editorialDigest.resources),
+        editorialScores: scoreEditorialCandidates(candidates)
       };
     } catch (error) {
       const fallbackReason = getErrorMessage(error);
@@ -436,7 +447,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           sourceResults,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
-          selectedPreview: previewResources(fallbackDigest.resources)
+          selectedPreview: previewResources(fallbackDigest.resources),
+          editorialScores: scoreEditorialCandidates(candidates)
         };
       }
 
@@ -455,7 +467,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           sourceResults,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
-          selectedPreview: []
+          selectedPreview: [],
+          editorialScores: scoreEditorialCandidates(candidates)
         };
       }
 
@@ -473,7 +486,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           sourceResults,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
-          selectedPreview: previewResources(cachedDigest.resources)
+          selectedPreview: previewResources(cachedDigest.resources),
+          editorialScores: scoreEditorialCandidates(candidates)
         };
       }
 
@@ -489,7 +503,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
-        selectedPreview: []
+        selectedPreview: [],
+        editorialScores: scoreEditorialCandidates(candidates)
       };
     }
   } catch (error) {
@@ -511,7 +526,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
-        selectedPreview: []
+        selectedPreview: [],
+        editorialScores: scoreEditorialCandidates(candidates)
       };
     }
 
@@ -529,7 +545,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(cachedDigest.resources)
+        selectedPreview: previewResources(cachedDigest.resources),
+        editorialScores: scoreEditorialCandidates(candidates)
       };
     }
 
@@ -546,7 +563,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       sourceResults,
       rejectedCandidates,
       candidatesPreview: previewCandidates(candidates),
-      selectedPreview: []
+      selectedPreview: [],
+      editorialScores: scoreEditorialCandidates(candidates)
     };
   }
 }
