@@ -94,10 +94,34 @@ function whyItMatters(resource: Resource, areas: string[], index: number): strin
 }
 
 function ignoreRisk(resource: Resource, areas: string[]): string {
+  const text = resourceText(resource);
+
+  if (text.includes("storybook") && (text.includes("mcp") || text.includes("agent"))) {
+    return "Our Design System Agent may continue relying on static documentation instead of reading component metadata, examples, and states directly.";
+  }
+
+  if (text.includes("design-to-code") || text.includes("design to code") || text.includes("code generation")) {
+    return "We may evaluate design-to-code output without understanding how Figma metadata, component structure, and token semantics affect quality.";
+  }
+
+  if (text.includes("token")) {
+    return "AI-generated interfaces may keep using tokens by name only, without understanding semantic intent, theming rules, or governance constraints.";
+  }
+
+  if (text.includes("figma") && (text.includes("mcp") || text.includes("agent") || text.includes("library"))) {
+    return "Our Figma libraries may remain useful to humans but under-specified for agents that need component intent, variants, and constraints.";
+  }
+
+  if (text.includes("accessibility") || text.includes("qa") || text.includes("test")) {
+    return "AI-assisted component changes may pass visual review while missing accessibility, regression, or QA rules that should be system-owned.";
+  }
+
+  if (text.includes("documentation") || text.includes("docs") || text.includes("machine-readable")) {
+    return "Our documentation may stay readable for people but too ambiguous for agents to retrieve, compare, and apply safely.";
+  }
+
   return truncateText(
-    `If we ignore this, AI-assisted work around ${workflowPhrase(
-      areas
-    )} will keep relying on tribal knowledge instead of explicit Design System rules.`,
+    `We may miss a chance to turn ${workflowPhrase(areas)} into explicit system rules that agents and reviewers can apply consistently.`,
     180
   );
 }

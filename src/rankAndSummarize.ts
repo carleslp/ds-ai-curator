@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { CandidateResource } from "./collectCandidates.js";
 import { withEditorialSections } from "./editorial.js";
 import type { Digest } from "./emailTemplate.js";
+import { aiEvidenceForText, designSystemEvidenceForText, maturityLevelForText } from "./filterCandidates.js";
 import { truncateText } from "./textUtils.js";
 
 export type ProviderName = "openAI" | "gemini";
@@ -64,6 +65,7 @@ Team context:
 - The development team has an internal Design System Agent
 - The development team has an internal QA Design System Agent
 - The team maintains components, tokens, documentation, governance, accessibility, and Figma-to-Storybook alignment
+- The team already has a mature enterprise Design System. Do not select beginner Design System education.
 
 Select the best resources from the provided candidates.
 
@@ -115,10 +117,12 @@ Reject:
 - resources that are mostly changelogs
 - resources that contain no new reusable learning
 - resources that duplicate another selected resource
+- beginner/basic Design System content such as "101", "basics", "beginner", "introduction", "getting started", "building blocks", "guide to design tokens", "what are design tokens", "typography as a system", or "motion design tokens" unless it explicitly discusses AI, MCP, agents, automation, design-to-code, Storybook integration, QA automation, or token intelligence
 
 For every candidate ask:
 1. Would this help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow?
 2. Is this worth one of only five reading slots today?
+3. Would this teach something new to a Design System Designer working on a mature enterprise DS?
 
 Use this internal final ranking formula:
 finalScore =
@@ -174,6 +178,9 @@ Rules:
 - Strong evidence must include at least one of: design system, design systems, component library, design tokens, Storybook, Figma component, Figma library, design-to-code, design system agent, QA design system agent, MCP + Figma, MCP + Storybook, AI + design system, AI + component library, AI + design tokens.
 - For Figma sources, only select when there is design systems plus AI/MCP/agent/code/tokens/component generation, Figma + MCP + design systems, Figma + design-to-code, Figma + Code Connect, or Figma + component generation.
 - Reject the resource if directDesignSystemEvidence would be empty.
+- Every selected resource must include at least one AI anchor: AI, artificial intelligence, LLM, agent, MCP, automation, generative, design-to-code, code generation, QA automation, accessibility automation, AI-assisted, machine-readable, RAG, or Copilot.
+- Every selected resource must include at least one Design System workflow anchor: design system, design systems, design tokens, component library, Storybook, Figma library, Figma components, Code Connect, design QA, governance, documentation, accessibility, React, or React Native.
+- Reject resources with maturityLevel "basic"; prefer advanced signals about improving, automating, validating, governing, or integrating mature Design System workflows.
 - If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
 - Trend summary must be max 120 words and focus only on AI impact on Design Systems, Figma, Storybook, tokens, documentation, governance, QA, or agents.
@@ -308,13 +315,23 @@ function assertSelectedFromCandidates(resources: RankedDigest["resources"], cand
   const invalid = resources.filter((resource) => !urls.has(resource.url));
   const normalizedTitles = resources.map((resource) => resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
   const lowQuality = resources.filter(
-    (resource) =>
-      resource.relevance_score < 4 ||
-      resource.worth_your_time_score < 4 ||
-      resource.directDesignSystemEvidence.trim().length === 0 ||
-      /(^|\s)(changelog|release notes)(\s|$)/i.test(`${resource.title} ${resource.source} ${resource.url}`) ||
-      normalizedTitles.filter((title) => title === resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())
-        .length > 1
+    (resource) => {
+      const text = `${resource.title} ${resource.source} ${resource.url} ${resource.summary} ${
+        resource.design_system_angle
+      } ${resource.directDesignSystemEvidence}`.toLowerCase();
+
+      return (
+        resource.relevance_score < 4 ||
+        resource.worth_your_time_score < 4 ||
+        resource.directDesignSystemEvidence.trim().length === 0 ||
+        !aiEvidenceForText(text) ||
+        !designSystemEvidenceForText(text) ||
+        maturityLevelForText(text) === "basic" ||
+        /(^|\s)(changelog|release notes)(\s|$)/i.test(`${resource.title} ${resource.source} ${resource.url}`) ||
+        normalizedTitles.filter((title) => title === resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())
+          .length > 1
+      );
+    }
   );
 
   if (invalid.length > 0) {

@@ -386,10 +386,10 @@ export function renderEmail(digest: Digest): string {
                 <tr>
                   <td class="email-padding" style="padding:17px 40px;">
                     <div style="font-size:9px;font-weight:900;color:#c4b5fd;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:7px;">
-                      Trends today
+                      Curation Mode
                     </div>
                     <div style="font-size:13px;color:#ddd6fe;line-height:1.65;">
-                      ${escapeHtml(digest.trend_summary)}
+                      ${escapeHtml(cleanText(digest.trend_summary))}
                     </div>
                   </td>
                 </tr>

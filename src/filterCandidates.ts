@@ -6,6 +6,9 @@ export type RejectedCandidate = {
   source: string;
   rejectionReason: string;
   directDesignSystemEvidence: string;
+  aiEvidence: string;
+  designSystemEvidence: string;
+  maturityLevel: "advanced" | "intermediate" | "basic";
   relevance_score: number;
   worth_your_time_score: number;
 };
@@ -243,6 +246,80 @@ const broadAiSources = [
   "playwright mcp"
 ];
 
+const matureAiAnchors = [
+  " ai ",
+  "artificial intelligence",
+  "llm",
+  "large language model",
+  "agent",
+  "agents",
+  "mcp",
+  "model context protocol",
+  "automation",
+  "generative",
+  "design-to-code",
+  "design to code",
+  "code generation",
+  "qa automation",
+  "accessibility automation",
+  "ai-assisted",
+  "machine-readable",
+  "machine readable",
+  "rag",
+  "retrieval augmented generation",
+  "copilot"
+];
+
+const matureWorkflowAnchors = [
+  "design system",
+  "design systems",
+  "design tokens",
+  "component library",
+  "storybook",
+  "figma library",
+  "figma components",
+  "code connect",
+  "design qa",
+  "governance",
+  "documentation",
+  "accessibility",
+  "react",
+  "react native"
+];
+
+const beginnerSignals = [
+  "101",
+  "basics",
+  "beginner",
+  "introduction",
+  "getting started",
+  "building blocks",
+  "guide to design tokens",
+  "what are design tokens",
+  "typography as a system",
+  "motion design tokens"
+];
+
+const advancedAiSignals = [
+  " ai ",
+  "artificial intelligence",
+  "llm",
+  "agent",
+  "agents",
+  "mcp",
+  "model context protocol",
+  "automation",
+  "design-to-code",
+  "design to code",
+  "storybook integration",
+  "qa automation",
+  "token intelligence",
+  "machine-readable",
+  "machine readable",
+  "rag",
+  "copilot"
+];
+
 function haystack(candidate: CandidateResource): string {
   return ` ${candidate.title} ${candidate.source} ${candidate.snippet} ${candidate.rawText} `.toLowerCase();
 }
@@ -257,6 +334,32 @@ function candidatePrimaryContent(candidate: CandidateResource): string {
 
 function containsAny(text: string, keywords: string[]): boolean {
   return keywords.some((keyword) => text.includes(keyword));
+}
+
+function firstMatch(text: string, keywords: string[]): string | undefined {
+  return keywords.find((keyword) => text.includes(keyword));
+}
+
+export function aiEvidenceForText(text: string): string {
+  const normalized = ` ${text.toLowerCase()} `;
+  const match = firstMatch(normalized, matureAiAnchors);
+  return match ? `Matched AI anchor: ${match.trim()}` : "";
+}
+
+export function designSystemEvidenceForText(text: string): string {
+  const normalized = ` ${text.toLowerCase()} `;
+  const match = firstMatch(normalized, matureWorkflowAnchors);
+  return match ? `Matched Design System workflow anchor: ${match.trim()}` : "";
+}
+
+export function maturityLevelForText(text: string): "advanced" | "intermediate" | "basic" {
+  const normalized = ` ${text.toLowerCase()} `;
+  const hasBeginnerSignal = containsAny(normalized, beginnerSignals);
+  const hasAdvancedSignal = containsAny(normalized, advancedAiSignals);
+
+  if (hasBeginnerSignal && !hasAdvancedSignal) return "basic";
+  if (hasAdvancedSignal && containsAny(normalized, matureWorkflowAnchors)) return "advanced";
+  return "intermediate";
 }
 
 function isMedium(candidate: CandidateResource): boolean {
@@ -334,9 +437,24 @@ function hasStrongFigmaDesignSystemAngle(candidate: CandidateResource): boolean 
 function rejectionReason(candidate: CandidateResource): string | undefined {
   const text = haystack(candidate);
   const content = candidateContent(candidate);
+  const aiEvidence = aiEvidenceForText(text);
+  const designSystemEvidence = designSystemEvidenceForText(text);
+  const maturityLevel = maturityLevelForText(text);
   const hasHighPriorityKeyword = containsAny(text, highPriorityKeywords);
   const hasDirectEvidence = candidate.directDesignSystemEvidence.trim().length > 0;
   const hasDirectDesignSystemSignal = containsAny(text, directDesignSystemSignals);
+
+  if (!aiEvidence) {
+    return "Rejected because no AI relevance anchor was found for a mature Design System workflow.";
+  }
+
+  if (!designSystemEvidence) {
+    return "Rejected because no Design System workflow anchor was found.";
+  }
+
+  if (maturityLevel === "basic") {
+    return "Rejected beginner/basic Design System education; mature enterprise DS teams need advanced AI, automation, validation, governance, or integration signals.";
+  }
 
   if (isGitHubTopicPage(candidate)) {
     return "Rejected GitHub topic page.";
@@ -435,6 +553,9 @@ export function filterCandidatesWithDiagnostics(candidates: CandidateResource[])
         source: candidate.source,
         rejectionReason: reason,
         directDesignSystemEvidence: candidate.directDesignSystemEvidence,
+        aiEvidence: aiEvidenceForText(haystack(candidate)),
+        designSystemEvidence: designSystemEvidenceForText(haystack(candidate)),
+        maturityLevel: maturityLevelForText(haystack(candidate)),
         relevance_score: candidate.relevanceScore,
         worth_your_time_score: candidate.worthYourTimeScore
       });

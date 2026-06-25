@@ -6,8 +6,11 @@ import {
 import { withEditorialSections } from "./editorial.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
+  aiEvidenceForText,
+  designSystemEvidenceForText,
   editorialFinalScore,
   filterCandidatesWithDiagnostics,
+  maturityLevelForText,
   type RejectedCandidate
 } from "./filterCandidates.js";
 import {
@@ -32,6 +35,9 @@ type SelectedPreview = {
   title: string;
   url: string;
   source: string;
+  aiEvidence: string;
+  designSystemEvidence: string;
+  maturityLevel: "advanced" | "intermediate" | "basic";
   relevance_score: number;
   worth_your_time_score: number;
   directDesignSystemEvidence: string;
@@ -72,7 +78,7 @@ export function buildSubject(date: string): string {
 function createEmergencyFallbackDigest(): Digest {
   return withEditorialSections({
     date: todayIsoDate(),
-    trend_summary: "Fallback: candidate collection and live ranking are currently unavailable.",
+    trend_summary: "Curation mode unavailable: trusted sources could not return relevant mature-DS AI signals today.",
     resources: []
   });
 }
@@ -155,6 +161,9 @@ function hasReusableEditorialLearning(candidate: CandidateResource): boolean {
 
   if (isMarketingPage) return false;
   if (releaseOnly) return false;
+  if (!aiEvidenceForText(text)) return false;
+  if (!designSystemEvidenceForText(text)) return false;
+  if (maturityLevelForText(text) === "basic") return false;
   return hasLearningSignal;
 }
 
@@ -209,8 +218,8 @@ function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): 
     date: todayIsoDate(),
     trend_summary:
       resources.length > 0
-        ? "Candidate-based digest generated from curated Design System sources because LLM ranking was unavailable."
-        : "Fallback: no relevant candidate resources were available from curated sources.",
+        ? "Curated from trusted Design System sources. Editorial ranking is running in fallback mode today."
+        : "No mature Design System AI signals passed the editorial gate today.",
     resources
   });
 }
@@ -248,14 +257,23 @@ function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] 
 }
 
 function previewResources(resources: Resource[]): SelectedPreview[] {
-  return resources.map((resource) => ({
-    title: resource.title,
-    url: resource.url,
-    source: resource.source,
-    relevance_score: resource.relevance_score ?? 0,
-    worth_your_time_score: resource.worth_your_time_score ?? 0,
-    directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
-  }));
+  return resources.map((resource) => {
+    const text = `${resource.title} ${resource.source} ${resource.summary} ${resource.cleanSummary ?? ""} ${
+      resource.directDesignSystemEvidence ?? ""
+    }`;
+
+    return {
+      title: resource.title,
+      url: resource.url,
+      source: resource.source,
+      aiEvidence: aiEvidenceForText(text),
+      designSystemEvidence: designSystemEvidenceForText(text),
+      maturityLevel: maturityLevelForText(text),
+      relevance_score: resource.relevance_score ?? 0,
+      worth_your_time_score: resource.worth_your_time_score ?? 0,
+      directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
+    };
+  });
 }
 
 async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]): Promise<{
