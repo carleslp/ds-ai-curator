@@ -11,6 +11,13 @@ export type Resource = {
   cleanSummary?: string;
   design_system_angle?: string;
   why_it_matters_to_our_team?: string;
+  why_selected?: string;
+  expected_impact_on_workflow?: string;
+  who_should_read?: string;
+  estimated_reading_time?: string;
+  ignore_risk?: string;
+  impact_score?: number;
+  affected_workflow_areas?: string[];
   directDesignSystemEvidence?: string;
   is_real_source?: boolean;
   relevance_score?: number;
@@ -20,8 +27,10 @@ export type Resource = {
 export type Digest = {
   date: string;
   trend_summary: string;
+  theSignal: string;
   executiveBrief: string;
   editorsPick: Resource | null;
+  thisWeeksSignals: string[];
   suggestedExperiment: string;
   teamDiscussionQuestions: string[];
   resources: Resource[];
@@ -48,6 +57,9 @@ function renderResourceCard(resource: Resource): string {
   const whyItMatters = resource.why_it_matters_to_our_team
     ? truncateText(resource.why_it_matters_to_our_team, 220)
     : "";
+  const ignoreRisk = resource.ignore_risk ? truncateText(resource.ignore_risk, 180) : "";
+  const affectedAreas = resource.affected_workflow_areas?.length ? resource.affected_workflow_areas.join(", ") : "";
+  const impactScore = resource.impact_score ? `${resource.impact_score}/5` : "";
 
   return `
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #ede9f3;border-radius:14px;">
@@ -80,6 +92,22 @@ function renderResourceCard(resource: Resource): string {
         whyItMatters
           ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;">
         <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
+      </div>`
+          : ""
+      }
+
+      ${
+        impactScore || affectedAreas
+          ? `<div style="font-size:11px;color:#4b5563;line-height:1.55;margin-bottom:10px;padding:9px 11px;background:#fafafa;border:1px solid #f3f4f6;border-radius:8px;">
+        <strong style="color:#111827;">Impact on our team:</strong> ${escapeHtml(impactScore)}${impactScore && affectedAreas ? " · " : ""}${escapeHtml(affectedAreas)}
+      </div>`
+          : ""
+      }
+
+      ${
+        ignoreRisk
+          ? `<div style="font-size:11px;color:#6b21a8;line-height:1.55;margin-bottom:12px;">
+        <strong>If we ignore this:</strong> ${escapeHtml(ignoreRisk)}
       </div>`
           : ""
       }
@@ -129,12 +157,12 @@ function renderSectionLabel(label: string): string {
                     </div>`;
 }
 
-function renderExecutiveBrief(executiveBrief: string): string {
-  const brief = cleanText(executiveBrief);
+function renderTheSignal(theSignal: string): string {
+  const brief = cleanText(theSignal);
   if (!brief) return "";
 
   return `
-                    ${renderSectionLabel("Executive Brief")}
+                    ${renderSectionLabel("The Signal")}
                     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:26px;">
                       <tr>
                         <td style="padding:20px;background:#fbfaff;border:1px solid #ede9fe;border-radius:14px;">
@@ -155,6 +183,12 @@ function renderEditorsPick(editorsPick: Resource | null): string {
     ? truncateText(editorsPick.why_it_matters_to_our_team, 180)
     : "";
   const date = cleanText(editorsPick.published_date || editorsPick.date || "Recent");
+  const detailRows = [
+    ["Why this was selected", editorsPick.why_selected],
+    ["Expected impact on our workflow", editorsPick.expected_impact_on_workflow],
+    ["Who should read it", editorsPick.who_should_read],
+    ["Estimated reading time", editorsPick.estimated_reading_time]
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
 
   return `
                     ${renderSectionLabel("Editor's Pick")}
@@ -188,6 +222,25 @@ function renderEditorsPick(editorsPick: Resource | null): string {
                           </div>`
                               : ""
                           }
+                          ${
+                            detailRows.length > 0
+                              ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
+                            ${detailRows
+                              .map(
+                                ([label, value]) => `
+                            <tr>
+                              <td style="padding:5px 0;font-size:11px;color:#c4b5fd;font-weight:800;width:38%;vertical-align:top;">
+                                ${escapeHtml(label)}
+                              </td>
+                              <td style="padding:5px 0;font-size:11px;color:#f5f3ff;line-height:1.5;vertical-align:top;">
+                                ${escapeHtml(value)}
+                              </td>
+                            </tr>`
+                              )
+                              .join("")}
+                          </table>`
+                              : ""
+                          }
                           <table width="100%" cellpadding="0" cellspacing="0" border="0">
                             <tr>
                               <td style="font-size:11px;color:#c4b5fd;font-style:italic;">
@@ -201,6 +254,32 @@ function renderEditorsPick(editorsPick: Resource | null): string {
                             </tr>
                           </table>
                         </td>
+                      </tr>
+                    </table>`;
+}
+
+function renderThisWeeksSignals(signals: string[]): string {
+  const cleanSignals = signals.map((signal) => cleanText(signal)).filter(Boolean).slice(0, 3);
+  if (cleanSignals.length === 0) return "";
+
+  return `
+                    ${renderSectionLabel("This week's signals")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                      <tr>
+                        ${cleanSignals
+                          .map(
+                            (signal, index) => `
+                        <td class="resource-column" width="33.33%" valign="top" style="width:33.33%;padding:${index === 0 ? "0 10px 0 0" : index === cleanSignals.length - 1 ? "0 0 0 10px" : "0 10px"};">
+                          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfaff;border:1px solid #ede9fe;border-radius:12px;">
+                            <tr>
+                              <td style="padding:14px;font-size:12px;color:#374151;line-height:1.55;">
+                                ${escapeHtml(signal)}
+                              </td>
+                            </tr>
+                          </table>
+                        </td>`
+                          )
+                          .join("")}
                       </tr>
                     </table>`;
 }
@@ -319,8 +398,9 @@ export function renderEmail(digest: Digest): string {
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
                 <tr>
                   <td class="email-padding" style="padding:30px 40px;">
-                    ${renderExecutiveBrief(digest.executiveBrief)}
+                    ${renderTheSignal(digest.theSignal || digest.executiveBrief)}
                     ${renderEditorsPick(digest.editorsPick)}
+                    ${renderThisWeeksSignals(digest.thisWeeksSignals)}
                     ${renderResourcesSection(resources, resourceLabel)}
                     ${renderSuggestedExperiment(digest.suggestedExperiment)}
                     ${renderTeamQuestions(digest.teamDiscussionQuestions)}

@@ -128,13 +128,44 @@ function candidateToResource(candidate: CandidateResource): Resource {
   };
 }
 
+function hasReusableEditorialLearning(candidate: CandidateResource): boolean {
+  const text = `${candidate.title} ${candidate.source} ${candidate.url} ${candidate.cleanSummary} ${candidate.snippet}`.toLowerCase();
+  const releaseOnly = /\b(changelog|release notes)\b/.test(text) || /\breleases?\b/.test(candidate.source.toLowerCase());
+  const learningSignals = [
+    "workflow",
+    "guide",
+    "patterns",
+    "design system",
+    "design systems",
+    "design tokens",
+    "storybook",
+    "figma",
+    "mcp",
+    "agent",
+    "automation",
+    "documentation",
+    "accessibility",
+    "qa",
+    "testing",
+    "governance"
+  ];
+  const marketingSignals = ["pricing", "customer story", "case study", "book a demo", "contact sales"];
+  const hasLearningSignal = learningSignals.some((signal) => text.includes(signal));
+  const isMarketingPage = marketingSignals.some((signal) => text.includes(signal));
+
+  if (isMarketingPage) return false;
+  if (releaseOnly) return false;
+  return hasLearningSignal;
+}
+
 function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): Digest {
   const rankedCandidates = [...filteredCandidates]
     .filter(
       (candidate) =>
         candidate.relevanceScore >= 4 &&
         candidate.worthYourTimeScore >= 4 &&
-        candidate.directDesignSystemEvidence.trim().length > 0
+        candidate.directDesignSystemEvidence.trim().length > 0 &&
+        hasReusableEditorialLearning(candidate)
     )
     .sort((a, b) => {
       const scoreDifference = editorialFinalScore(b) - editorialFinalScore(a);

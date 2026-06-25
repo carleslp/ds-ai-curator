@@ -16,6 +16,13 @@ const RankedResourceSchema = z.object({
   summary: z.string().min(1),
   design_system_angle: z.string().min(1),
   why_it_matters_to_our_team: z.string().min(1),
+  why_selected: z.string().min(1),
+  expected_impact_on_workflow: z.string().min(1),
+  who_should_read: z.string().min(1),
+  estimated_reading_time: z.string().min(1),
+  ignore_risk: z.string().min(1),
+  impact_score: z.number().min(1).max(5),
+  affected_workflow_areas: z.array(z.enum(["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"])).min(1),
   directDesignSystemEvidence: z.string().min(1),
   relevance_score: z.number().min(1).max(5),
   worth_your_time_score: z.number().min(1).max(5)
@@ -24,6 +31,8 @@ const RankedResourceSchema = z.object({
 const RankedDigestSchema = z.object({
   date: z.string().min(1),
   trend_summary: z.string().max(900),
+  theSignal: z.string().min(1).max(1400),
+  thisWeeksSignals: z.array(z.string().min(1)).length(3),
   needsMoreSources: z.boolean(),
   resources: z.array(RankedResourceSchema).max(5)
 });
@@ -60,7 +69,8 @@ Select the best resources from the provided candidates.
 
 Only select resources that directly help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow.
 
-The digest should feel like a "Worth Your Time" briefing for a senior enterprise Design System Designer, not a generic AI/UX content roundup.
+The digest should feel like a premium weekly briefing written by a senior enterprise Design System Lead, not an AI summarizer.
+Replace generic summaries with editorial judgment. Explain what changed, why it matters now, and what the team should pay attention to.
 
 Prioritize:
 - AI-assisted Design System workflows
@@ -96,10 +106,15 @@ Reject:
 - generic prompt engineering
 - generic productivity tools
 - marketing fluff
+- marketing pages
 - SEO listicles
 - funding announcements
 - career advice
 - freelancer-only content
+- resources that are mainly release notes
+- resources that are mostly changelogs
+- resources that contain no new reusable learning
+- resources that duplicate another selected resource
 
 For every candidate ask:
 1. Would this help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow?
@@ -137,6 +152,13 @@ For each selected resource return:
   "summary": "",
   "design_system_angle": "",
   "why_it_matters_to_our_team": "",
+  "why_selected": "",
+  "expected_impact_on_workflow": "",
+  "who_should_read": "Designer | Frontend DS Engineer | AI Engineer | DesignOps or a slash-separated combination",
+  "estimated_reading_time": "3 min",
+  "ignore_risk": "",
+  "impact_score": 1-5,
+  "affected_workflow_areas": ["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"],
   "directDesignSystemEvidence": "",
   "relevance_score": 1-5,
   "worth_your_time_score": 1-5
@@ -155,11 +177,20 @@ Rules:
 - If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
 - Trend summary must be max 120 words and focus only on AI impact on Design Systems, Figma, Storybook, tokens, documentation, governance, QA, or agents.
+- theSignal must be 120-180 words. It must identify 2-4 emerging themes across the selected resources instead of summarizing each article.
+- thisWeeksSignals must contain exactly 3 short editorial observations about ecosystem trends, not individual article summaries.
+- why_it_matters_to_our_team must be unique for each resource and explain exactly how the resource could influence our team's work with Figma libraries, Storybook, design tokens, documentation, accessibility, QA, the internal Design System Agent, or the internal QA Agent.
+- why_selected must explain the editorial reason this item earned a slot.
+- expected_impact_on_workflow must describe the practical impact on our enterprise workflow.
+- ignore_risk must be one sentence beginning with a practical consequence of ignoring the topic.
+- impact_score must be 1-5 and affected_workflow_areas must use only: Figma, Storybook, Tokens, Docs, QA, AI Agents.
 
 Return valid JSON only with:
 {
   "date": "${todayIsoDate()}",
   "trend_summary": "",
+  "theSignal": "",
+  "thisWeeksSignals": [],
   "needsMoreSources": false,
   "resources": []
 }
@@ -175,6 +206,13 @@ function jsonSchema() {
     properties: {
       date: { type: "string" },
       trend_summary: { type: "string" },
+      theSignal: { type: "string" },
+      thisWeeksSignals: {
+        type: "array",
+        minItems: 3,
+        maxItems: 3,
+        items: { type: "string" }
+      },
       needsMoreSources: { type: "boolean" },
       resources: {
         type: "array",
@@ -190,6 +228,17 @@ function jsonSchema() {
             summary: { type: "string" },
             design_system_angle: { type: "string" },
             why_it_matters_to_our_team: { type: "string" },
+            why_selected: { type: "string" },
+            expected_impact_on_workflow: { type: "string" },
+            who_should_read: { type: "string" },
+            estimated_reading_time: { type: "string" },
+            ignore_risk: { type: "string" },
+            impact_score: { type: "number", minimum: 1, maximum: 5 },
+            affected_workflow_areas: {
+              type: "array",
+              minItems: 1,
+              items: { type: "string", enum: ["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"] }
+            },
             directDesignSystemEvidence: { type: "string" },
             relevance_score: { type: "number", minimum: 1, maximum: 5 },
             worth_your_time_score: { type: "number", minimum: 1, maximum: 5 }
@@ -203,6 +252,13 @@ function jsonSchema() {
             "summary",
             "design_system_angle",
             "why_it_matters_to_our_team",
+            "why_selected",
+            "expected_impact_on_workflow",
+            "who_should_read",
+            "estimated_reading_time",
+            "ignore_risk",
+            "impact_score",
+            "affected_workflow_areas",
             "directDesignSystemEvidence",
             "relevance_score",
             "worth_your_time_score"
@@ -211,7 +267,7 @@ function jsonSchema() {
         }
       }
     },
-    required: ["date", "trend_summary", "needsMoreSources", "resources"],
+    required: ["date", "trend_summary", "theSignal", "thisWeeksSignals", "needsMoreSources", "resources"],
     additionalProperties: false
   };
 }
@@ -220,6 +276,8 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
   return withEditorialSections({
     date: rankedDigest.date,
     trend_summary: rankedDigest.trend_summary,
+    theSignal: rankedDigest.theSignal,
+    thisWeeksSignals: rankedDigest.thisWeeksSignals,
     resources: rankedDigest.resources.map((resource) => ({
       title: resource.title,
       source: resource.source,
@@ -230,6 +288,13 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       cleanSummary: truncateText(resource.summary, 280),
       design_system_angle: resource.design_system_angle,
       why_it_matters_to_our_team: truncateText(resource.why_it_matters_to_our_team, 220),
+      why_selected: truncateText(resource.why_selected, 160),
+      expected_impact_on_workflow: truncateText(resource.expected_impact_on_workflow, 180),
+      who_should_read: resource.who_should_read,
+      estimated_reading_time: resource.estimated_reading_time,
+      ignore_risk: truncateText(resource.ignore_risk, 180),
+      impact_score: resource.impact_score,
+      affected_workflow_areas: resource.affected_workflow_areas,
       directDesignSystemEvidence: resource.directDesignSystemEvidence,
       is_real_source: true,
       relevance_score: resource.relevance_score,
@@ -241,11 +306,15 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
 function assertSelectedFromCandidates(resources: RankedDigest["resources"], candidates: CandidateResource[]) {
   const urls = new Set(candidates.map((candidate) => candidate.url));
   const invalid = resources.filter((resource) => !urls.has(resource.url));
+  const normalizedTitles = resources.map((resource) => resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
   const lowQuality = resources.filter(
     (resource) =>
       resource.relevance_score < 4 ||
       resource.worth_your_time_score < 4 ||
-      resource.directDesignSystemEvidence.trim().length === 0
+      resource.directDesignSystemEvidence.trim().length === 0 ||
+      /(^|\s)(changelog|release notes)(\s|$)/i.test(`${resource.title} ${resource.source} ${resource.url}`) ||
+      normalizedTitles.filter((title) => title === resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim())
+        .length > 1
   );
 
   if (invalid.length > 0) {
