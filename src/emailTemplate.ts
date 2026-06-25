@@ -30,9 +30,11 @@ export type Digest = {
   theSignal: string;
   executiveBrief: string;
   editorsPick: Resource | null;
+  supportingSignals: string[];
   thisWeeksSignals: string[];
   suggestedExperiment: string;
   teamDiscussionQuestions: string[];
+  nextWeekWatchlist: string[];
   resources: Resource[];
 };
 
@@ -258,12 +260,12 @@ function renderEditorsPick(editorsPick: Resource | null): string {
                     </table>`;
 }
 
-function renderThisWeeksSignals(signals: string[]): string {
+function renderSupportingSignals(signals: string[]): string {
   const cleanSignals = signals.map((signal) => cleanText(signal)).filter(Boolean).slice(0, 3);
   if (cleanSignals.length === 0) return "";
 
   return `
-                    ${renderSectionLabel("This week's signals")}
+                    ${renderSectionLabel("Supporting Signals")}
                     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
                       <tr>
                         ${cleanSignals
@@ -285,8 +287,10 @@ function renderThisWeeksSignals(signals: string[]): string {
 }
 
 function renderResourcesSection(resources: Resource[], resourceLabel: string): string {
+  if (resources.length === 0) return "";
+
   return `
-                    ${renderSectionLabel(`${resourceLabel} · AI + Design Systems`)}
+                    ${renderSectionLabel(`${resourceLabel} · supporting resources`)}
                     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
                       ${renderResourceGrid(resources)}
                     </table>`;
@@ -314,7 +318,7 @@ function renderTeamQuestions(teamDiscussionQuestions: string[]): string {
   if (questions.length === 0) return "";
 
   return `
-                    ${renderSectionLabel("Questions for our team")}
+                    ${renderSectionLabel("Questions for our Team")}
                     <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
                       <tr>
                         <td style="padding:18px;background:#f9fafb;border:1px solid #f3f4f6;border-radius:14px;">
@@ -323,6 +327,28 @@ function renderTeamQuestions(teamDiscussionQuestions: string[]): string {
                               (question) => `
                           <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:8px;">
                             ${escapeHtml(question)}
+                          </div>`
+                            )
+                            .join("")}
+                        </td>
+                      </tr>
+                    </table>`;
+}
+
+function renderNextWeekWatchlist(nextWeekWatchlist: string[]): string {
+  const items = nextWeekWatchlist.map((item) => cleanText(item)).filter(Boolean).slice(0, 3);
+  if (items.length === 0) return "";
+
+  return `
+                    ${renderSectionLabel("Next Week Watchlist")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                      <tr>
+                        <td style="padding:18px;background:#fbfaff;border:1px solid #ede9fe;border-radius:14px;">
+                          ${items
+                            .map(
+                              (item) => `
+                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:8px;">
+                            ${escapeHtml(item)}
                           </div>`
                             )
                             .join("")}
@@ -400,10 +426,11 @@ export function renderEmail(digest: Digest): string {
                   <td class="email-padding" style="padding:30px 40px;">
                     ${renderTheSignal(digest.theSignal || digest.executiveBrief)}
                     ${renderEditorsPick(digest.editorsPick)}
-                    ${renderThisWeeksSignals(digest.thisWeeksSignals)}
+                    ${renderSupportingSignals(digest.supportingSignals ?? digest.thisWeeksSignals)}
                     ${renderResourcesSection(resources, resourceLabel)}
                     ${renderSuggestedExperiment(digest.suggestedExperiment)}
                     ${renderTeamQuestions(digest.teamDiscussionQuestions)}
+                    ${renderNextWeekWatchlist(digest.nextWeekWatchlist ?? [])}
                   </td>
                 </tr>
               </table>

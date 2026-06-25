@@ -23,7 +23,22 @@ const RankedResourceSchema = z.object({
   estimated_reading_time: z.string().min(1),
   ignore_risk: z.string().min(1),
   impact_score: z.number().min(1).max(5),
-  affected_workflow_areas: z.array(z.enum(["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"])).min(1),
+  affected_workflow_areas: z
+    .array(
+      z.enum([
+        "Figma",
+        "Storybook",
+        "React",
+        "React Native",
+        "Azure DevOps",
+        "Governance",
+        "Documentation",
+        "Accessibility",
+        "Internal Design System Agent",
+        "Internal QA Agent"
+      ])
+    )
+    .min(1),
   directDesignSystemEvidence: z.string().min(1),
   relevance_score: z.number().min(1).max(5),
   worth_your_time_score: z.number().min(1).max(5)
@@ -32,8 +47,10 @@ const RankedResourceSchema = z.object({
 const RankedDigestSchema = z.object({
   date: z.string().min(1),
   trend_summary: z.string().max(900),
-  theSignal: z.string().min(1).max(1400),
-  thisWeeksSignals: z.array(z.string().min(1)).length(3),
+  theSignal: z.string().min(1).max(1000),
+  supportingSignals: z.array(z.string().min(1)).length(3),
+  thisWeeksSignals: z.array(z.string().min(1)).length(3).optional(),
+  nextWeekWatchlist: z.array(z.string().min(1)).min(2).max(3),
   needsMoreSources: z.boolean(),
   resources: z.array(RankedResourceSchema).max(5)
 });
@@ -71,8 +88,9 @@ Select the best resources from the provided candidates.
 
 Only select resources that directly help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow.
 
-The digest should feel like a premium weekly briefing written by a senior enterprise Design System Lead, not an AI summarizer.
+The digest should feel like a premium weekly briefing written by an experienced editor inside an enterprise Design System team.
 Replace generic summaries with editorial judgment. Explain what changed, why it matters now, and what the team should pay attention to.
+Never write "As Principal Design System Lead" or "I would".
 
 Prioritize:
 - AI-assisted Design System workflows
@@ -163,7 +181,7 @@ For each selected resource return:
   "estimated_reading_time": "3 min",
   "ignore_risk": "",
   "impact_score": 1-5,
-  "affected_workflow_areas": ["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"],
+  "affected_workflow_areas": ["Figma", "Storybook", "React", "React Native", "Azure DevOps", "Governance", "Documentation", "Accessibility", "Internal Design System Agent", "Internal QA Agent"],
   "directDesignSystemEvidence": "",
   "relevance_score": 1-5,
   "worth_your_time_score": 1-5
@@ -188,20 +206,22 @@ Rules:
 - If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
 - Trend summary must be max 120 words and focus only on AI impact on Design Systems, Figma, Storybook, tokens, documentation, governance, QA, or agents.
-- theSignal must be 120-180 words. It must identify 2-4 emerging themes across the selected resources instead of summarizing each article.
-- thisWeeksSignals must contain exactly 3 short editorial observations about ecosystem trends, not individual article summaries.
+- theSignal must be maximum 140 words. It must identify emerging themes across the selected resources instead of summarizing each article. It must never sound like ChatGPT.
+- supportingSignals must contain exactly 3 short editorial observations about selected evidence and ecosystem trends, not individual article summaries.
+- nextWeekWatchlist must contain 2-3 short items to watch next week.
 - why_it_matters_to_our_team must be unique for each resource and explain exactly how the resource could influence our team's work with Figma libraries, Storybook, design tokens, documentation, accessibility, QA, the internal Design System Agent, or the internal QA Agent.
 - why_selected must explain the editorial reason this item earned a slot.
 - expected_impact_on_workflow must describe the practical impact on our enterprise workflow.
 - ignore_risk must be one sentence beginning with a practical consequence of ignoring the topic.
-- impact_score must be 1-5 and affected_workflow_areas must use only: Figma, Storybook, Tokens, Docs, QA, AI Agents.
+- impact_score must be 1-5 and affected_workflow_areas must use only: Figma, Storybook, React, React Native, Azure DevOps, Governance, Documentation, Accessibility, Internal Design System Agent, Internal QA Agent.
 
 Return valid JSON only with:
 {
   "date": "${todayIsoDate()}",
   "trend_summary": "",
   "theSignal": "",
-  "thisWeeksSignals": [],
+  "supportingSignals": [],
+  "nextWeekWatchlist": [],
   "needsMoreSources": false,
   "resources": []
 }
@@ -218,9 +238,15 @@ function jsonSchema() {
       date: { type: "string" },
       trend_summary: { type: "string" },
       theSignal: { type: "string" },
-      thisWeeksSignals: {
+      supportingSignals: {
         type: "array",
         minItems: 3,
+        maxItems: 3,
+        items: { type: "string" }
+      },
+      nextWeekWatchlist: {
+        type: "array",
+        minItems: 2,
         maxItems: 3,
         items: { type: "string" }
       },
@@ -248,7 +274,21 @@ function jsonSchema() {
             affected_workflow_areas: {
               type: "array",
               minItems: 1,
-              items: { type: "string", enum: ["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"] }
+              items: {
+                type: "string",
+                enum: [
+                  "Figma",
+                  "Storybook",
+                  "React",
+                  "React Native",
+                  "Azure DevOps",
+                  "Governance",
+                  "Documentation",
+                  "Accessibility",
+                  "Internal Design System Agent",
+                  "Internal QA Agent"
+                ]
+              }
             },
             directDesignSystemEvidence: { type: "string" },
             relevance_score: { type: "number", minimum: 1, maximum: 5 },
@@ -278,7 +318,7 @@ function jsonSchema() {
         }
       }
     },
-    required: ["date", "trend_summary", "theSignal", "thisWeeksSignals", "needsMoreSources", "resources"],
+    required: ["date", "trend_summary", "theSignal", "supportingSignals", "nextWeekWatchlist", "needsMoreSources", "resources"],
     additionalProperties: false
   };
 }
@@ -288,7 +328,9 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
     date: rankedDigest.date,
     trend_summary: rankedDigest.trend_summary,
     theSignal: rankedDigest.theSignal,
-    thisWeeksSignals: rankedDigest.thisWeeksSignals,
+    supportingSignals: rankedDigest.supportingSignals,
+    thisWeeksSignals: rankedDigest.supportingSignals,
+    nextWeekWatchlist: rankedDigest.nextWeekWatchlist,
     resources: rankedDigest.resources.map((resource) => ({
       title: resource.title,
       source: resource.source,

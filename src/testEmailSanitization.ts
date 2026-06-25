@@ -63,11 +63,12 @@ assert.match(html, /Storybook AI docs for MCP component testing/i);
 assert.doesNotMatch(html, /&lt;h2|&lt;ul|&lt;li|data-hovercard|pull request metadata/i);
 assert.ok(
   html.indexOf("The Signal") < html.indexOf("Editor&#039;s Pick") &&
-    html.indexOf("Editor&#039;s Pick") < html.indexOf("This week&#039;s signals") &&
-    html.indexOf("This week&#039;s signals") < html.indexOf("1 resource · AI + Design Systems") &&
-    html.indexOf("1 resource · AI + Design Systems") < html.indexOf("Suggested Experiment") &&
-    html.indexOf("Suggested Experiment") < html.indexOf("Questions for our team"),
-  "Expected v3 editorial sections to render in the requested order."
+    html.indexOf("Editor&#039;s Pick") < html.indexOf("Supporting Signals") &&
+    html.indexOf("Supporting Signals") < html.indexOf("1 resource · supporting resources") &&
+    html.indexOf("1 resource · supporting resources") < html.indexOf("Suggested Experiment") &&
+    html.indexOf("Suggested Experiment") < html.indexOf("Questions for our Team") &&
+    html.indexOf("Questions for our Team") < html.indexOf("Next Week Watchlist"),
+  "Expected v4 editorial sections to render in the requested order."
 );
 
 const htmlWithoutOptionalSections = renderEmail({
@@ -76,13 +77,15 @@ const htmlWithoutOptionalSections = renderEmail({
   theSignal: "Brief only.",
   executiveBrief: "Brief only.",
   editorsPick: null,
+  supportingSignals: [],
   thisWeeksSignals: [],
   suggestedExperiment: "",
   teamDiscussionQuestions: [],
+  nextWeekWatchlist: [],
   resources: []
 });
 
-assert.doesNotMatch(htmlWithoutOptionalSections, /Editor&#039;s Pick|Suggested Experiment|Questions for our team/);
+assert.doesNotMatch(htmlWithoutOptionalSections, /Editor&#039;s Pick|Suggested Experiment|Questions for our Team|Next Week Watchlist/);
 
 console.log("Email sanitization test passed.");
 

@@ -3,7 +3,14 @@ import { cleanText, truncateText } from "./textUtils.js";
 
 type EditorialFields = Pick<
   Digest,
-  "theSignal" | "executiveBrief" | "editorsPick" | "thisWeeksSignals" | "suggestedExperiment" | "teamDiscussionQuestions"
+  | "theSignal"
+  | "executiveBrief"
+  | "editorsPick"
+  | "supportingSignals"
+  | "thisWeeksSignals"
+  | "suggestedExperiment"
+  | "teamDiscussionQuestions"
+  | "nextWeekWatchlist"
 >;
 
 type DigestInput = Pick<Digest, "date" | "trend_summary" | "resources"> & Partial<EditorialFields>;
@@ -18,7 +25,29 @@ function limitWords(value: string, maxWords: number): string {
   return `${words.slice(0, maxWords).join(" ").replace(/[,:;]$/, "")}.`;
 }
 
-const workflowAreas = ["Figma", "Storybook", "Tokens", "Docs", "QA", "AI Agents"] as const;
+function polishSignal(value: string): string {
+  return limitWords(
+    cleanText(value)
+      .replace(/\bAs Principal Design System Lead,?\s*/gi, "")
+      .replace(/\bAs a Principal Design System Lead,?\s*/gi, "")
+      .replace(/\bI would\s+/gi, "")
+      .replace(/\bI’d\s+/gi, ""),
+    140
+  );
+}
+
+const workflowAreas = [
+  "Figma",
+  "Storybook",
+  "React",
+  "React Native",
+  "Azure DevOps",
+  "Governance",
+  "Documentation",
+  "Accessibility",
+  "Internal Design System Agent",
+  "Internal QA Agent"
+] as const;
 
 function resourceText(resource: Resource): string {
   return cleanText(
@@ -33,19 +62,21 @@ function affectedWorkflowAreas(resource: Resource): string[] {
   const areas = new Set<string>();
 
   if (text.includes("figma") || text.includes("library") || text.includes("component")) areas.add("Figma");
-  if (text.includes("storybook") || text.includes("react")) areas.add("Storybook");
-  if (text.includes("token")) areas.add("Tokens");
-  if (text.includes("doc") || text.includes("documentation") || text.includes("mcp")) areas.add("Docs");
-  if (text.includes("qa") || text.includes("test") || text.includes("accessibility") || text.includes("regression")) {
-    areas.add("QA");
-  }
+  if (text.includes("storybook")) areas.add("Storybook");
+  if (text.includes("react native")) areas.add("React Native");
+  if (text.includes("react") || text.includes("component api")) areas.add("React");
+  if (text.includes("azure devops") || text.includes("ado") || text.includes("pipeline")) areas.add("Azure DevOps");
+  if (text.includes("governance") || text.includes("guardrail") || text.includes("standard")) areas.add("Governance");
+  if (text.includes("doc") || text.includes("documentation") || text.includes("mcp")) areas.add("Documentation");
+  if (text.includes("accessibility") || text.includes("a11y")) areas.add("Accessibility");
+  if (text.includes("qa") || text.includes("test") || text.includes("regression")) areas.add("Internal QA Agent");
   if (text.includes("ai") || text.includes("agent") || text.includes("mcp") || text.includes("llm")) {
-    areas.add("AI Agents");
+    areas.add("Internal Design System Agent");
   }
 
   if (areas.size === 0) {
-    areas.add("Docs");
-    areas.add("AI Agents");
+    areas.add("Documentation");
+    areas.add("Internal Design System Agent");
   }
 
   return workflowAreas.filter((area) => areas.has(area));
@@ -58,10 +89,12 @@ function impactScore(resource: Resource, areas: string[]): number {
 
 function audienceFor(resource: Resource, areas: string[]): string {
   const readers = new Set<string>();
-  if (areas.includes("Figma") || areas.includes("Tokens")) readers.add("Designer");
-  if (areas.includes("Storybook") || areas.includes("QA")) readers.add("Frontend DS Engineer");
-  if (areas.includes("AI Agents") || resourceText(resource).includes("mcp")) readers.add("AI Engineer");
-  if (areas.includes("Docs") || resourceText(resource).includes("governance")) readers.add("DesignOps");
+  if (areas.includes("Figma")) readers.add("Designer");
+  if (areas.includes("Storybook") || areas.includes("React") || areas.includes("React Native")) readers.add("Frontend DS Engineer");
+  if (areas.includes("Internal Design System Agent") || areas.includes("Internal QA Agent") || resourceText(resource).includes("mcp")) {
+    readers.add("AI Engineer");
+  }
+  if (areas.includes("Documentation") || areas.includes("Governance") || areas.includes("Azure DevOps")) readers.add("DesignOps");
   return Array.from(readers).join(" / ") || "Designer / Frontend DS Engineer";
 }
 
@@ -177,42 +210,38 @@ export function selectEditorsPick(resources: Resource[]): Resource | null {
 
 function buildSignal(resources: Resource[], editorsPick: Resource | null): string {
   if (resources.length === 0) {
-    return "No strong resources today. That is an editorial decision, not a failure state. The curator found either too much beginner Design System education, generic AI/MCP material, or sources that did not clearly affect mature workflows such as Figma metadata, Storybook component metadata, design-to-code, token automation, QA automation, accessibility automation, documentation automation, or agents consuming component APIs. For a mature enterprise Design System team, the useful move is to protect attention and avoid filling the briefing with weak signals. The practical takeaway is still clear: our own system should become more legible to AI-assisted workflows. Figma libraries, component APIs, tokens, docs, accessibility rules, and QA checks need enough structure for internal agents to reason from them safely. Use the gap to audit one high-value component and ask what metadata an agent would need before it could propose or validate a change.";
+    return "No strong signal cleared the bar today. The sources leaned either generic, introductory, or disconnected from mature Design System work. That is worth saying plainly: weak AI content creates false urgency, especially when it never touches Figma libraries, Storybook evidence, React implementation, governance, documentation, accessibility, or agent-readable QA. The useful move is to protect attention and inspect our own readiness. Pick one high-traffic component and ask whether an internal Design System Agent could understand its variants, token intent, accessibility states, Storybook examples, Azure DevOps links, and review rules without asking a human to interpret the gaps.";
   }
 
   const pickTitle = truncateText(editorsPick?.title ?? resources[0].title, 80);
   const allAreas = Array.from(new Set(resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource))));
-  const themes = allAreas.slice(0, 4);
-  const themePhrase = workflowPhrase(themes.length ? themes : ["Docs", "AI Agents"]);
-  const brief = `The signal this week is that AI is moving from generic assistance into the operating layer of Design Systems. The selected resources point to ${themePhrase} as the places where small gaps in structure become larger workflow risks. What changed is not simply that tools can generate more UI; it is that agents and copilots increasingly need system rules they can inspect, reuse, and challenge. That matters now because our Figma libraries, Storybook examples, token decisions, documentation, accessibility guidance, and QA routines are becoming inputs to automation, not just references for humans. The strongest item, "${pickTitle}", is worth reading first because it gives the team a concrete way to connect AI capability with system governance. Pay attention to where the resources reveal missing metadata, unclear component intent, or review steps that still depend on tribal knowledge.`;
+  const themes = allAreas.slice(0, 3);
+  const themePhrase = workflowPhrase(themes.length ? themes : ["Documentation", "Internal Design System Agent"]);
+  const brief = `The useful signal is not that AI can produce more interface work; it is that mature systems now need sharper evidence. This week's strongest thread sits across ${themePhrase}: the places where component intent, implementation rules, and review criteria either become machine-readable or remain tribal knowledge. "${pickTitle}" is the lead item because it points to workflow impact, not novelty theatre. Watch for anything that helps agents read Figma or Storybook context, respect React and React Native constraints, surface accessibility checks, or connect governance back into Azure DevOps and documentation. Speed matters less than whether generated work can be reviewed against the same system rules the team already owns.`;
 
-  if (wordCount(brief) < 120) {
-    return `${brief} The goal is not faster output alone; it is safer, more reusable system decisions.`;
-  }
-
-  return limitWords(brief, 180);
+  return polishSignal(brief);
 }
 
-function buildThisWeeksSignals(resources: Resource[]): string[] {
+function buildSupportingSignals(resources: Resource[]): string[] {
   if (resources.length === 0) {
     return [
-      "The absence of strong sources is itself a signal: attention should stay on verified workflows, not generic AI updates.",
-      "AI readiness depends on whether our own component docs, tokens, and examples are explicit enough for agents to inspect.",
-      "Design System quality will be decided by governance and QA loops as much as by generation speed."
+      "Most available items were too broad for a mature Design System team.",
+      "The practical gap is still internal: component knowledge needs to be readable by people and agents.",
+      "Attention should stay on evidence, not AI commentary."
     ];
   }
 
   const areas = new Set(resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource)));
   const signals = [
-    areas.has("AI Agents")
-      ? "AI agents are becoming consumers of Design System knowledge, which makes structured docs and examples part of the product surface."
-      : "AI value is shifting toward reusable workflow improvements rather than broad productivity claims.",
-    areas.has("Figma") || areas.has("Tokens")
-      ? "Figma libraries and tokens need clearer links to implementation behavior, because generation without constraints creates review debt."
-      : "The strongest signals are around making system decisions easier to verify across design and engineering.",
-    areas.has("QA") || areas.has("Storybook")
-      ? "Storybook, accessibility, and QA evidence are becoming the guardrails that separate useful automation from risky UI output."
-      : "Documentation quality is becoming an automation prerequisite, not a cleanup task after components ship."
+    areas.has("Internal Design System Agent")
+      ? "Agent-readable component knowledge is becoming part of the Design System surface."
+      : "The useful AI work is narrowing toward operational workflow changes, not broad productivity claims.",
+    areas.has("Figma") || areas.has("React")
+      ? "Figma intent and React implementation need a tighter handshake before generation can be trusted."
+      : "The strongest signals make system decisions easier to verify across design and engineering.",
+    areas.has("Internal QA Agent") || areas.has("Accessibility") || areas.has("Storybook")
+      ? "Storybook, accessibility, and QA evidence are becoming the guardrails for assisted delivery."
+      : "Documentation is becoming an automation input, not a cleanup task."
   ];
 
   return signals.slice(0, 3);
@@ -220,26 +249,49 @@ function buildThisWeeksSignals(resources: Resource[]): string[] {
 
 function buildSuggestedExperiment(resources: Resource[], editorsPick: Resource | null): string {
   if (resources.length === 0) {
-    return "Spend 30 minutes auditing one component page and mark what an internal Design System Agent would need: props, token usage, accessibility states, examples, and QA rules.";
+    return "In 30 minutes, audit one high-use component and add a checklist of what an internal Design System Agent and Internal QA Agent would need: Figma variant intent, Storybook examples, React/React Native props, accessibility states, Azure DevOps link, and governance rule.";
   }
 
   const pick = truncateText(editorsPick?.title ?? resources[0].title, 90);
-  return `In 30 minutes, use "${pick}" as a prompt for one component audit: identify one missing token note, one Storybook/doc gap, and one QA or accessibility guardrail an AI assistant would need before suggesting changes.`;
+  return `In 30 minutes, use "${pick}" to audit one component: compare its Figma variants, Storybook states, React or React Native props, documentation, accessibility notes, and Azure DevOps ownership. Capture one gap an internal agent should not have to infer.`;
 }
 
 function buildTeamQuestions(resources: Resource[]): string[] {
   if (resources.length === 0) {
     return [
-      "Which component or token page would be most useful to make AI-readable this week?",
-      "What Design System guardrail should remain explicitly human-owned even when agents assist?",
-      "What evidence would make a future digest item trustworthy enough for team action?"
+      "Which Figma library component would expose the biggest gap if an internal Design System Agent tried to explain it today?",
+      "Where do Storybook, React or React Native, Azure DevOps, and documentation disagree about ownership or expected behavior?",
+      "Which governance or accessibility rule should the Internal QA Agent check before any AI-assisted component change moves forward?"
     ];
   }
 
   return [
-    "Which part of our Figma, tokens, Storybook, and React workflow would these resources change first?",
-    "What metadata or documentation would our internal Design System Agent need to use this safely?",
-    "What QA, accessibility, or governance check should remain visible before AI-assisted changes ship?"
+    "What would need to change in Figma, Storybook, React, or React Native for this signal to become usable in our workflow?",
+    "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
+    "Which governance, accessibility, or Internal QA Agent check should stay visible before AI-assisted changes ship?"
+  ];
+}
+
+function buildNextWeekWatchlist(resources: Resource[]): string[] {
+  if (resources.length === 0) {
+    return [
+      "Look for practical examples of agents reading Storybook or Figma metadata, not generic AI commentary.",
+      "Watch for design-to-code work that explains review quality, accessibility, and component reuse.",
+      "Track whether tooling connects outputs back to governance, Azure DevOps, and documentation."
+    ];
+  }
+
+  const areas = new Set(resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource)));
+  return [
+    areas.has("Storybook")
+      ? "Watch whether Storybook AI/MCP work moves from release notes into repeatable component review workflows."
+      : "Watch for Storybook examples that expose component states and metadata to internal agents.",
+    areas.has("Figma")
+      ? "Track whether Figma-related AI work explains metadata quality, variant intent, and design-to-code review."
+      : "Look for Figma library signals that make component intent clearer for automation.",
+    areas.has("Internal QA Agent") || areas.has("Accessibility")
+      ? "Watch for accessibility and QA automation that can plug into Azure DevOps instead of living as side checks."
+      : "Look for governance patterns that tie AI-assisted changes back to documentation and ownership."
   ];
 }
 
@@ -248,7 +300,8 @@ export function withEditorialSections(digest: DigestInput): Digest {
   const editorsPick = digest.editorsPick
     ? enrichResources([digest.editorsPick])[0]
     : selectEditorsPick(resources);
-  const theSignal = digest.theSignal ?? digest.executiveBrief ?? buildSignal(resources, editorsPick);
+  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(resources, editorsPick));
+  const supportingSignals = digest.supportingSignals ?? digest.thisWeeksSignals ?? buildSupportingSignals(resources);
 
   return {
     date: digest.date,
@@ -256,9 +309,11 @@ export function withEditorialSections(digest: DigestInput): Digest {
     theSignal,
     executiveBrief: digest.executiveBrief ?? theSignal,
     editorsPick,
-    thisWeeksSignals: digest.thisWeeksSignals ?? buildThisWeeksSignals(resources),
+    supportingSignals,
+    thisWeeksSignals: supportingSignals,
     suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(resources, editorsPick),
     teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(resources),
+    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(resources),
     resources
   };
 }
@@ -267,11 +322,13 @@ export function hasEditorialSections(digest: Digest): boolean {
   return Boolean(
     digest.theSignal &&
       digest.executiveBrief &&
-      Array.isArray(digest.thisWeeksSignals) &&
-      digest.thisWeeksSignals.length === 3 &&
+      Array.isArray(digest.supportingSignals) &&
+      digest.supportingSignals.length === 3 &&
       digest.suggestedExperiment &&
       Array.isArray(digest.teamDiscussionQuestions) &&
       digest.teamDiscussionQuestions.length >= 2 &&
+      Array.isArray(digest.nextWeekWatchlist) &&
+      digest.nextWeekWatchlist.length >= 2 &&
       "editorsPick" in digest
   );
 }
