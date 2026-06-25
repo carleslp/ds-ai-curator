@@ -16,6 +16,7 @@ export interface EditorialScore {
   duplicatePenalty: number;
 
   totalScore: number;
+  cappedScoreReason?: string;
 
   editorialReasons: string[];
 }
@@ -150,6 +151,24 @@ const genericPenaltyRules: SignalRule[] = [
   { terms: ["music retrieval"], points: 8, reason: "Non-UI domain signal" }
 ];
 
+const arxivUiEvidenceTerms = [
+  " ui ",
+  "user interface",
+  "figma",
+  "storybook",
+  "component",
+  "components",
+  "design-to-code",
+  "design to code",
+  "token",
+  "tokens",
+  "accessibility",
+  " qa ",
+  "quality assurance",
+  "frontend",
+  "front-end"
+];
+
 function normalizeText(candidate: Pick<CandidateResource, "title" | "source" | "url" | "snippet" | "rawText" | "cleanSummary">): string {
   return ` ${cleanText(
     `${candidate.title} ${candidate.source} ${candidate.url} ${candidate.snippet} ${candidate.rawText} ${candidate.cleanSummary}`
@@ -190,6 +209,14 @@ function clampNonNegative(value: number): number {
   return Math.max(0, value);
 }
 
+function isArxivCandidate(candidate: CandidateResource): boolean {
+  return candidate.source.toLowerCase().includes("arxiv") || candidate.url.toLowerCase().includes("arxiv.org");
+}
+
+function hasArxivUiEvidence(text: string): boolean {
+  return arxivUiEvidenceTerms.some((term) => text.includes(term));
+}
+
 export function scoreEditorialCandidate(candidate: CandidateResource, candidates: CandidateResource[] = [candidate]): EditorialScore {
   const text = normalizeText(candidate);
   const editorialReasons: string[] = [];
@@ -204,10 +231,16 @@ export function scoreEditorialCandidate(candidate: CandidateResource, candidates
 
   const beginnerPenalty = scoreRules(text, beginnerPenaltyRules, editorialReasons);
   const marketingPenalty = scoreRules(text, marketingPenaltyRules, editorialReasons);
-  const genericPenalty = scoreRules(text, genericPenaltyRules, editorialReasons);
+  let genericPenalty = scoreRules(text, genericPenaltyRules, editorialReasons);
+
+  if (isArxivCandidate(candidate) && !hasArxivUiEvidence(text)) {
+    genericPenalty += 30;
+    editorialReasons.push("Generic arXiv AI/MCP paper without UI or Design System workflow evidence");
+  }
+
   const duplicatePenaltyScore = duplicatePenalty(candidate, candidates, editorialReasons);
 
-  const totalScore =
+  const rawTotalScore =
     aiScore +
     designSystemScore +
     workflowScore +
@@ -219,6 +252,12 @@ export function scoreEditorialCandidate(candidate: CandidateResource, candidates
     marketingPenalty -
     genericPenalty -
     duplicatePenaltyScore;
+
+  const shouldCapIrrelevant = designSystemScore === 0 && workflowScore === 0 && rawTotalScore > 25;
+  const cappedScoreReason = shouldCapIrrelevant
+    ? "Capped at 25 because designSystemScore and workflowScore are both 0."
+    : undefined;
+  const totalScore = shouldCapIrrelevant ? 25 : rawTotalScore;
 
   return {
     aiScore,
@@ -233,6 +272,7 @@ export function scoreEditorialCandidate(candidate: CandidateResource, candidates
     genericPenalty,
     duplicatePenalty: duplicatePenaltyScore,
     totalScore: clampNonNegative(totalScore),
+    cappedScoreReason,
     editorialReasons
   };
 }

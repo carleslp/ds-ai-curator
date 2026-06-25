@@ -74,7 +74,7 @@ const designSystemTopicRules: TopicRule<DesignSystemTopic>[] = [
   { topic: "Metadata", terms: ["metadata", "manifest", "schema"] },
   { topic: "Dev Mode", terms: ["dev mode"] },
   { topic: "Variables", terms: ["variables", "figma variables"] },
-  { topic: "Enterprise", terms: ["enterprise", "governance", "internal"] }
+  { topic: "Enterprise", terms: ["enterprise design system", "enterprise workflow", "governance", "internal design system"] }
 ];
 
 const workflowTopicRules: TopicRule<WorkflowTopic>[] = [
@@ -82,8 +82,11 @@ const workflowTopicRules: TopicRule<WorkflowTopic>[] = [
   { topic: "Developer Workflow", terms: ["developer", "frontend", "storybook", "react", "code generation", "component api"] },
   { topic: "Design QA", terms: ["design qa", "qa automation", "visual regression", "accessibility automation"] },
   { topic: "Design Review", terms: ["design review", "review", "checklist"] },
-  { topic: "Design System Agent", terms: ["design system agent", "qa design system agent", "agent consuming", "agent"] },
-  { topic: "Internal Tools", terms: ["internal tool", "internal tools", "internal ai", "internal agent", "enterprise"] }
+  {
+    topic: "Design System Agent",
+    terms: ["design system agent", "qa design system agent", "agent consuming component", "agent consuming storybook", "agent consuming figma"]
+  },
+  { topic: "Internal Tools", terms: ["internal tool", "internal tools", "internal ai tool", "internal ai agent", "enterprise design system"] }
 ];
 
 function textForClassification(candidate: Pick<CandidateResource, "title" | "source" | "url" | "snippet" | "rawText" | "cleanSummary">): string {
