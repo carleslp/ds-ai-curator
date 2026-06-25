@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { z } from "zod";
 import type { CandidateResource } from "./collectCandidates.js";
 import type { Digest } from "./emailTemplate.js";
+import { truncateText } from "./textUtils.js";
 
 export type ProviderName = "openAI" | "gemini";
 
@@ -224,9 +225,10 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       url: resource.url,
       type: resource.type,
       published_date: resource.published_date,
-      summary: resource.summary,
+      summary: truncateText(resource.summary, 280),
+      cleanSummary: truncateText(resource.summary, 280),
       design_system_angle: resource.design_system_angle,
-      why_it_matters_to_our_team: resource.why_it_matters_to_our_team,
+      why_it_matters_to_our_team: truncateText(resource.why_it_matters_to_our_team, 220),
       directDesignSystemEvidence: resource.directDesignSystemEvidence,
       is_real_source: true,
       relevance_score: resource.relevance_score,

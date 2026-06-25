@@ -1,3 +1,5 @@
+import { truncateText } from "./textUtils.js";
+
 export type Resource = {
   title: string;
   url: string;
@@ -6,6 +8,7 @@ export type Resource = {
   published_date?: string;
   date?: string;
   summary: string;
+  cleanSummary?: string;
   design_system_angle?: string;
   why_it_matters_to_our_team?: string;
   directDesignSystemEvidence?: string;
@@ -37,6 +40,10 @@ function safeUrl(value: unknown): string {
 
 function renderResourceCard(resource: Resource): string {
   const date = resource.published_date || resource.date || "Recent";
+  const summary = truncateText(resource.cleanSummary ?? resource.summary, 280);
+  const whyItMatters = resource.why_it_matters_to_our_team
+    ? truncateText(resource.why_it_matters_to_our_team, 220)
+    : "";
 
   return `
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #ede9f3;border-radius:14px;">
@@ -62,13 +69,13 @@ function renderResourceCard(resource: Resource): string {
       </div>
 
       <div style="font-size:13px;color:#4b5563;line-height:1.65;margin-bottom:10px;">
-        ${escapeHtml(resource.summary)}
+        ${escapeHtml(summary)}
       </div>
 
       ${
-        resource.why_it_matters_to_our_team
+        whyItMatters
           ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;">
-        <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(resource.why_it_matters_to_our_team)}
+        <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
       </div>`
           : ""
       }

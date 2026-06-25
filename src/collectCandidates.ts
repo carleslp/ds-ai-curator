@@ -1,4 +1,5 @@
 import { curatedSources, type CuratedSource } from "./sources.js";
+import { cleanText, decodeHtmlEntities, stripHtmlTags, summarizeReleaseText, truncateText } from "./textUtils.js";
 
 export type CandidateResource = {
   title: string;
@@ -6,6 +7,7 @@ export type CandidateResource = {
   source: string;
   published_date: string;
   snippet: string;
+  cleanSummary: string;
   rawText: string;
   sourceTier: 1 | 2 | 3;
   sourceScore: number;
@@ -45,24 +47,11 @@ const maxCandidates = 30;
 const requestTimeoutMs = 8000;
 
 function stripTags(value: string): string {
-  return value
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return stripHtmlTags(decodeHtmlEntities(value)).replace(/\s+/g, " ").trim();
 }
 
 function decodeEntities(value: string): string {
-  return value
-    .replace(/<!\[CDATA\[(.*?)\]\]>/gs, "$1")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'")
-    .trim();
+  return decodeHtmlEntities(value).trim();
 }
 
 function normalizeTitle(value: string): string {
@@ -272,7 +261,13 @@ async function fetchText(url: string): Promise<string> {
 function textBetween(xml: string, tag: string): string | undefined {
   const escapedTag = tag.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   const match = xml.match(new RegExp(`<${escapedTag}[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`, "i"));
-  return match ? decodeEntities(stripTags(match[1])) : undefined;
+  return match ? cleanText(match[1]) : undefined;
+}
+
+function rawTextBetween(xml: string, tag: string): string | undefined {
+  const escapedTag = tag.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const match = xml.match(new RegExp(`<${escapedTag}[^>]*>([\\s\\S]*?)<\\/${escapedTag}>`, "i"));
+  return match ? decodeEntities(match[1]) : undefined;
 }
 
 function feedLink(block: string, sourceUrl: string): string | undefined {
@@ -305,24 +300,29 @@ function parseFeedItems(xml: string, source: CuratedSource): UnscoredCandidateRe
       const url = feedLink(block, source.url);
       const publishedDate =
         textBetween(block, "pubDate") ?? textBetween(block, "published") ?? textBetween(block, "updated");
-      const snippet =
-        textBetween(block, "description") ??
-        textBetween(block, "summary") ??
-        textBetween(block, "content:encoded") ??
-        textBetween(block, "content") ??
+      const rawSnippet =
+        rawTextBetween(block, "description") ??
+        rawTextBetween(block, "summary") ??
+        rawTextBetween(block, "content:encoded") ??
+        rawTextBetween(block, "content") ??
         "";
 
       if (!title || !url) {
         return undefined;
       }
 
+      const isStorybookRelease = source.name === "Storybook Releases";
+      const cleanSummary = isStorybookRelease ? summarizeReleaseText(rawSnippet) : truncateText(rawSnippet, 280);
+      const displayTitle = isStorybookRelease ? `Storybook release: ${title}` : title;
+
       return {
-        title,
+        title: displayTitle,
         url,
         source: source.name,
         published_date: publishedDate ?? "",
-        snippet,
-        rawText: snippet,
+        snippet: cleanSummary,
+        cleanSummary,
+        rawText: cleanText(rawSnippet),
         sourceTier: source.tier,
         sourceScore: source.sourceScore
       };
@@ -349,6 +349,7 @@ function parseHtmlItems(html: string, source: CuratedSource): UnscoredCandidateR
         source: source.name,
         published_date: "",
         snippet: pageTitle,
+        cleanSummary: truncateText(pageTitle, 280),
         rawText: `${title} ${pageTitle}`,
         sourceTier: source.tier,
         sourceScore: source.sourceScore

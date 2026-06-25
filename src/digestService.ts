@@ -14,6 +14,7 @@ import {
   rankAndSummarizeWithOpenAI,
   type ProviderName
 } from "./rankAndSummarize.js";
+import { truncateText } from "./textUtils.js";
 
 type DigestMode = "liveOpenAI" | "liveGemini" | "candidateFallback" | "cachedDigest" | "emergencyFallback";
 
@@ -103,17 +104,22 @@ function rememberDigest(digest: Digest): void {
 }
 
 function candidateToResource(candidate: CandidateResource): Resource {
+  const cleanSummary = truncateText(candidate.cleanSummary || candidate.snippet, 280);
+
   return {
     title: candidate.title,
     url: candidate.url,
     source: candidate.source,
     type: "Article",
     published_date: candidate.published_date,
-    summary: candidate.snippet || "Candidate collected from a curated source for Design System review.",
+    summary: cleanSummary || "Candidate collected from a curated source for Design System review.",
+    cleanSummary,
     design_system_angle:
       "Selected from curated Design System, UI engineering, tooling, or research sources and ranked against the Figma-to-Storybook workflow.",
-    why_it_matters_to_our_team:
+    why_it_matters_to_our_team: truncateText(
       "Worth reviewing because it connects to components, tokens, documentation, QA, governance, or AI-assisted delivery for an enterprise Design System team.",
+      220
+    ),
     directDesignSystemEvidence: candidate.directDesignSystemEvidence,
     is_real_source: true,
     relevance_score: candidate.relevanceScore,
