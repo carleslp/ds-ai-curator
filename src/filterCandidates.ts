@@ -189,6 +189,24 @@ const figmaAngleSignals = [
   "agent"
 ];
 
+const figmaStrongDesignSystemSignals = [
+  "ai applied to design systems",
+  "ai design system",
+  "ai design systems",
+  "mcp",
+  "model context protocol",
+  "code connect",
+  "design-to-code",
+  "design to code",
+  "design tokens automation",
+  "token automation",
+  "component generation",
+  "storybook integration",
+  "ai agents",
+  "design system agent",
+  "design qa automation"
+];
+
 const rejectionSignals = [
   "career",
   "portfolio",
@@ -231,6 +249,10 @@ function haystack(candidate: CandidateResource): string {
 
 function candidateContent(candidate: CandidateResource): string {
   return ` ${candidate.title} ${candidate.url} ${candidate.snippet} ${candidate.rawText} `.toLowerCase();
+}
+
+function candidatePrimaryContent(candidate: CandidateResource): string {
+  return ` ${candidate.title} ${candidate.url} ${candidate.rawText} `.toLowerCase();
 }
 
 function containsAny(text: string, keywords: string[]): boolean {
@@ -282,6 +304,33 @@ function isFigmaWeave(candidate: CandidateResource): boolean {
   return candidateContent(candidate).includes("weave");
 }
 
+function isGenericDesignSystemLandingPage(candidate: CandidateResource): boolean {
+  try {
+    const url = new URL(candidate.url);
+    const pathname = url.pathname.replace(/\/+$/, "");
+    return (
+      (url.hostname === "figma.com" || url.hostname.endsWith(".figma.com")) &&
+      (pathname === "/design-systems" || pathname === "/best-practices/design-systems")
+    );
+  } catch {
+    return candidate.url.includes("figma.com/design-systems");
+  }
+}
+
+function hasStrongFigmaDesignSystemAngle(candidate: CandidateResource): boolean {
+  const primaryContent = candidatePrimaryContent(candidate);
+  const hasDesignSystem = primaryContent.includes("design system") || primaryContent.includes("design systems");
+  const hasFigma = primaryContent.includes("figma") || candidate.url.includes("figma.com");
+
+  return (
+    (hasDesignSystem && containsAny(primaryContent, figmaStrongDesignSystemSignals)) ||
+    (hasFigma && primaryContent.includes("mcp") && hasDesignSystem) ||
+    (hasFigma && (primaryContent.includes("design-to-code") || primaryContent.includes("design to code"))) ||
+    (hasFigma && primaryContent.includes("code connect")) ||
+    (hasFigma && primaryContent.includes("component generation"))
+  );
+}
+
 function rejectionReason(candidate: CandidateResource): string | undefined {
   const text = haystack(candidate);
   const content = candidateContent(candidate);
@@ -311,6 +360,14 @@ function rejectionReason(candidate: CandidateResource): string | undefined {
 
   if (isFigmaSource(candidate) && !containsAny(content, figmaSpecificSignals)) {
     return "Rejected generic Figma page without AI, MCP, design systems, components, tokens, Code Connect, Dev Mode, or design-to-code angle.";
+  }
+
+  if (isGenericDesignSystemLandingPage(candidate) && !hasStrongFigmaDesignSystemAngle(candidate)) {
+    return "Rejected generic Design System landing page without AI, MCP, Code Connect, design-to-code, token automation, component generation, Storybook integration, AI agents, or Design QA automation.";
+  }
+
+  if (isFigmaSource(candidate) && !hasStrongFigmaDesignSystemAngle(candidate)) {
+    return "Rejected Figma source without design systems plus AI/MCP/agent/code/tokens/component generation, Figma+MCP+design systems, Figma+design-to-code, Figma+Code Connect, or Figma+component generation.";
   }
 
   if (isFigmaSource(candidate) && !containsAny(content, figmaAngleSignals)) {
