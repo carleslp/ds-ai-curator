@@ -62,7 +62,8 @@ const server = http.createServer(async (request, response) => {
       rejectedCandidates: result.rejectedCandidates,
       candidatesPreview: result.candidatesPreview,
       selectedPreview: result.selectedPreview,
-      editorialScores: result.editorialScores
+      editorialScores: result.editorialScores,
+      topicClassifications: result.topicClassifications
     });
     return;
   }

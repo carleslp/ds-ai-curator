@@ -25,6 +25,14 @@ import {
   type ProviderName
 } from "./rankAndSummarize.js";
 import { truncateText } from "./textUtils.js";
+import {
+  classifyCandidatesTopics,
+  classifyCandidateTopics,
+  type AiTopic,
+  type DesignSystemTopic,
+  type TopicClassification,
+  type WorkflowTopic
+} from "./topicClassifier.js";
 
 type DigestMode =
   | "liveOpenAI"
@@ -42,6 +50,9 @@ type CandidatePreview = {
   sourceScore: number;
   directDesignSystemEvidence: string;
   editorialScore: EditorialScore;
+  aiTopics: AiTopic[];
+  designSystemTopics: DesignSystemTopic[];
+  workflowTopics: WorkflowTopic[];
 };
 
 type SelectedPreview = {
@@ -51,6 +62,9 @@ type SelectedPreview = {
   aiEvidence: string;
   designSystemEvidence: string;
   maturityLevel: "advanced" | "intermediate" | "basic";
+  aiTopics: AiTopic[];
+  designSystemTopics: DesignSystemTopic[];
+  workflowTopics: WorkflowTopic[];
   relevance_score: number;
   worth_your_time_score: number;
   directDesignSystemEvidence: string;
@@ -70,6 +84,7 @@ type DailyDigestResult = {
   candidatesPreview: CandidatePreview[];
   selectedPreview: SelectedPreview[];
   editorialScores: EditorialScoredCandidate[];
+  topicClassifications: TopicClassification[];
 };
 
 let cachedDigest: Digest | undefined;
@@ -294,15 +309,22 @@ function getErrorMessage(error: unknown): string {
 }
 
 function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] {
-  return candidates.slice(0, 10).map((candidate) => ({
-    title: candidate.title,
-    url: candidate.url,
-    source: candidate.source,
-    published_date: candidate.published_date,
-    sourceScore: candidate.sourceScore,
-    directDesignSystemEvidence: candidate.directDesignSystemEvidence,
-    editorialScore: scoreEditorialCandidate(candidate, candidates)
-  }));
+  return candidates.slice(0, 10).map((candidate) => {
+    const topics = classifyCandidateTopics(candidate);
+
+    return {
+      title: candidate.title,
+      url: candidate.url,
+      source: candidate.source,
+      published_date: candidate.published_date,
+      sourceScore: candidate.sourceScore,
+      directDesignSystemEvidence: candidate.directDesignSystemEvidence,
+      editorialScore: scoreEditorialCandidate(candidate, candidates),
+      aiTopics: topics.aiTopics,
+      designSystemTopics: topics.designSystemTopics,
+      workflowTopics: topics.workflowTopics
+    };
+  });
 }
 
 function previewResources(resources: Resource[]): SelectedPreview[] {
@@ -318,10 +340,34 @@ function previewResources(resources: Resource[]): SelectedPreview[] {
       aiEvidence: aiEvidenceForText(text),
       designSystemEvidence: designSystemEvidenceForText(text),
       maturityLevel: maturityLevelForText(text),
+      aiTopics: classifyTopicsFromResource(resource).aiTopics,
+      designSystemTopics: classifyTopicsFromResource(resource).designSystemTopics,
+      workflowTopics: classifyTopicsFromResource(resource).workflowTopics,
       relevance_score: resource.relevance_score ?? 0,
       worth_your_time_score: resource.worth_your_time_score ?? 0,
       directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
     };
+  });
+}
+
+function classifyTopicsFromResource(resource: Resource): Pick<TopicClassification, "aiTopics" | "designSystemTopics" | "workflowTopics"> {
+  return classifyCandidateTopics({
+    title: resource.title,
+    url: resource.url,
+    source: resource.source,
+    published_date: resource.published_date ?? resource.date ?? "",
+    snippet: resource.cleanSummary ?? resource.summary,
+    cleanSummary: resource.cleanSummary ?? resource.summary,
+    rawText: `${resource.summary} ${resource.design_system_angle ?? ""} ${resource.directDesignSystemEvidence ?? ""}`,
+    sourceTier: 2,
+    sourceScore: 3,
+    relevanceScore: resource.relevance_score ?? 3,
+    recencyScore: 3,
+    technicalDepthScore: 3,
+    practicalityScore: 3,
+    noveltyScore: 3,
+    worthYourTimeScore: resource.worth_your_time_score ?? 3,
+    directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
   });
 }
 
@@ -398,7 +444,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(fallbackDigest.resources),
-        editorialScores: scoreEditorialCandidates(candidates)
+        editorialScores: scoreEditorialCandidates(candidates),
+        topicClassifications: classifyCandidatesTopics(candidates)
       };
     }
 
@@ -424,7 +471,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(editorialDigest.resources),
-        editorialScores: scoreEditorialCandidates(candidates)
+        editorialScores: scoreEditorialCandidates(candidates),
+        topicClassifications: classifyCandidatesTopics(candidates)
       };
     } catch (error) {
       const fallbackReason = getErrorMessage(error);
@@ -448,7 +496,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: previewResources(fallbackDigest.resources),
-          editorialScores: scoreEditorialCandidates(candidates)
+          editorialScores: scoreEditorialCandidates(candidates),
+          topicClassifications: classifyCandidatesTopics(candidates)
         };
       }
 
@@ -468,7 +517,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: [],
-          editorialScores: scoreEditorialCandidates(candidates)
+          editorialScores: scoreEditorialCandidates(candidates),
+          topicClassifications: classifyCandidatesTopics(candidates)
         };
       }
 
@@ -487,7 +537,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: previewResources(cachedDigest.resources),
-          editorialScores: scoreEditorialCandidates(candidates)
+          editorialScores: scoreEditorialCandidates(candidates),
+          topicClassifications: classifyCandidatesTopics(candidates)
         };
       }
 
@@ -504,7 +555,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: [],
-        editorialScores: scoreEditorialCandidates(candidates)
+        editorialScores: scoreEditorialCandidates(candidates),
+        topicClassifications: classifyCandidatesTopics(candidates)
       };
     }
   } catch (error) {
@@ -527,7 +579,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: [],
-        editorialScores: scoreEditorialCandidates(candidates)
+        editorialScores: scoreEditorialCandidates(candidates),
+        topicClassifications: classifyCandidatesTopics(candidates)
       };
     }
 
@@ -546,7 +599,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(cachedDigest.resources),
-        editorialScores: scoreEditorialCandidates(candidates)
+        editorialScores: scoreEditorialCandidates(candidates),
+        topicClassifications: classifyCandidatesTopics(candidates)
       };
     }
 
@@ -564,7 +618,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       rejectedCandidates,
       candidatesPreview: previewCandidates(candidates),
       selectedPreview: [],
-      editorialScores: scoreEditorialCandidates(candidates)
+      editorialScores: scoreEditorialCandidates(candidates),
+      topicClassifications: classifyCandidatesTopics(candidates)
     };
   }
 }
