@@ -119,4 +119,14 @@ assert.ok(
   "Expected Storybook AI/MCP to remain selectable."
 );
 
+const figma2Code = result.selectedDecisions.find((decision) => decision.title.includes("Figma2Code"));
+assert.ok(figma2Code, "Expected Figma2Code decision.");
+assert.equal(figma2Code.editorialTitle, "Why Figma metadata is becoming the bottleneck for Design-to-Code AI");
+assert.ok(figma2Code.actionabilityScore >= 6, "Expected selected resources to clear the actionability gate.");
+assert.notEqual(figma2Code.mondayMorningChange, "nothing");
+
+const storybookAi = result.selectedDecisions.find((decision) => decision.title.includes("Storybook AI MCP"));
+assert.ok(storybookAi, "Expected Storybook AI/MCP decision.");
+assert.equal(storybookAi.editorialTitle, "Storybook prepares AI-ready component metadata");
+
 console.log("Editorial selection test passed.");

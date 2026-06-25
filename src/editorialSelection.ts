@@ -16,6 +16,11 @@ export type EditorialSelectionDecision = {
   skippedBecause: string;
   editorialMissionMatch: boolean;
   missionReason: string;
+  editorialValueMatch: boolean;
+  editorialValueReason: string;
+  actionabilityScore: number;
+  mondayMorningChange: string;
+  editorialTitle: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -38,8 +43,11 @@ type ScoredCandidate = {
 
 const targetGroups: TopicGroup[] = ["Storybook", "Figma", "AI Research", "Enterprise Practice", "Tooling"];
 const minimumEditorialScore = 30;
+const minimumActionabilityScore = 6;
 const missionRejectReason =
   "Skipped because it does not satisfy the DS × AI Curator mission: AI-powered tooling with direct Design System work impact.";
+const valueRejectReason = "Skipped because it does not change how a mature Design System team works.";
+const mondayRejectReason = "Skipped because the Monday Morning Test produced no concrete team change.";
 const aiResearchDesignSystemTopics: DesignSystemTopic[] = [
   "Figma",
   "Storybook",
@@ -82,6 +90,150 @@ function hasAiTextSignal(text: string): boolean {
       "machine readable"
     ])
   );
+}
+
+function uniqueReasons(reasons: string[]): string[] {
+  return Array.from(new Set(reasons.filter(Boolean)));
+}
+
+function editorialValueFor(candidate: CandidateResource): Pick<EditorialSelectionDecision, "editorialValueMatch" | "editorialValueReason"> {
+  const text = textForCandidate(candidate);
+  const reasons = uniqueReasons([
+    hasAnyText(text, ["component generation", "component metadata", "component api", "component apis", "production-ready ui"])
+      ? "changes how Design Systems are built"
+      : "",
+    hasAnyText(text, ["documentation automation", "docs automation", "docgen", "machine-readable", "ai-ready documentation"])
+      ? "changes how Design Systems are documented"
+      : "",
+    hasAnyText(text, ["design system agent", "agent consuming", "mcp", "model context protocol"])
+      ? "changes how AI agents consume Design Systems"
+      : "",
+    hasAnyText(text, ["workflow", "checklist", "playbook", "pattern", "implementation"])
+      ? "introduces a workflow designers could realistically adopt"
+      : "",
+    hasAnyText(text, ["governance", "guardrail", "standard", "policy"])
+      ? "introduces governance practices"
+      : "",
+    hasAnyText(text, ["design-to-code", "design to code", "figma2code", "ui code generation", "mockups to code"])
+      ? "improves Design-to-Code"
+      : "",
+    hasAnyText(text, ["design qa", "qa automation", "visual regression", "testing", "test automation"])
+      ? "improves Design QA"
+      : "",
+    hasAnyText(text, ["accessibility automation", "accessibility", "a11y"])
+      ? "improves accessibility workflows"
+      : "",
+    hasAnyText(text, ["design tokens", "token intelligence", "figma variables", "variables", "style dictionary"])
+      ? "improves Design Token workflows"
+      : ""
+  ]);
+
+  if (reasons.length === 0) {
+    return {
+      editorialValueMatch: false,
+      editorialValueReason: "No concrete editorial value: the resource does not change build, documentation, agent, workflow, governance, design-to-code, QA, accessibility, or token work."
+    };
+  }
+
+  return {
+    editorialValueMatch: true,
+    editorialValueReason: `Editorial value: ${reasons.slice(0, 3).join("; ")}.`
+  };
+}
+
+function actionabilityScoreFor(candidate: CandidateResource): number {
+  const text = textForCandidate(candidate);
+  let score = 0;
+
+  const positiveSignals: Array<[string[], number]> = [
+    [["workflow", "checklist", "playbook"], 4],
+    [["implementation pattern", "architecture", "component api", "component metadata"], 4],
+    [["repeatable", "practice", "process", "standard"], 3],
+    [["production", "production-ready", "migration"], 3],
+    [["governance", "guardrail", "policy"], 3],
+    [["design-to-code", "ui code generation", "component generation"], 3],
+    [["qa automation", "visual regression", "accessibility automation"], 3],
+    [["storybook", "figma", "react", "react native"], 2],
+    [["mcp", "agent", "machine-readable"], 2]
+  ];
+  const negativeSignals: Array<[string[], number]> = [
+    [["release notes", "changelog", "release:"], 5],
+    [["launch", "announcement", "introducing"], 3],
+    [["pricing", "book a demo", "contact sales"], 5],
+    [["teaser", "preview"], 3],
+    [["benchmark"], 4],
+    [["speculative", "survey"], 2]
+  ];
+
+  for (const [terms, points] of positiveSignals) {
+    if (hasAnyText(text, terms)) score += points;
+  }
+
+  for (const [terms, points] of negativeSignals) {
+    if (hasAnyText(text, terms)) score -= points;
+  }
+
+  return Math.max(0, Math.min(20, score));
+}
+
+function mondayMorningChangeFor(candidate: CandidateResource, actionabilityScore: number): string {
+  const text = textForCandidate(candidate);
+
+  if (actionabilityScore < minimumActionabilityScore) {
+    return "nothing";
+  }
+
+  if (hasAnyText(text, ["storybook", "component metadata", "component api", "docgen"])) {
+    return "Audit one Storybook component page for metadata, examples, props, and agent-readable documentation gaps.";
+  }
+
+  if (hasAnyText(text, ["figma", "design-to-code", "figma2code", "ui code generation"])) {
+    return "Review one Figma component against generated-code readiness: variant intent, metadata, tokens, and React mapping.";
+  }
+
+  if (hasAnyText(text, ["qa", "visual regression", "accessibility", "a11y", "testing"])) {
+    return "Add one QA or accessibility check the Internal QA Agent should run before accepting AI-assisted component changes.";
+  }
+
+  if (hasAnyText(text, ["governance", "guardrail", "policy"])) {
+    return "Turn one governance rule into an explicit checklist item tied to documentation and Azure DevOps ownership.";
+  }
+
+  if (hasAnyText(text, ["token", "variables", "style dictionary"])) {
+    return "Inspect one token decision and document semantic intent so AI-generated UI cannot use tokens by name alone.";
+  }
+
+  return "Identify one component workflow gap and convert it into a concrete instruction for the internal Design System Agent.";
+}
+
+function editorialTitleFor(candidate: CandidateResource): string {
+  const text = textForCandidate(candidate);
+
+  if (candidate.source.toLowerCase().includes("storybook") && hasAnyText(text, ["ai", "mcp", "component metadata", "docgen"])) {
+    return "Storybook prepares AI-ready component metadata";
+  }
+
+  if (hasAnyText(text, ["figma2code", "figma metadata", "design-to-code", "design to code"])) {
+    return "Why Figma metadata is becoming the bottleneck for Design-to-Code AI";
+  }
+
+  if (hasAnyText(text, ["mobile user experience", "ui flows", "complete ui flows"])) {
+    return "LLMs are beginning to reason about complete UI flows instead of isolated screens";
+  }
+
+  if (hasAnyText(text, ["design tokens", "token intelligence", "figma variables"])) {
+    return "Design tokens are becoming an AI control surface";
+  }
+
+  if (hasAnyText(text, ["accessibility automation", "qa automation", "visual regression"])) {
+    return "AI-assisted QA is moving closer to Design System governance";
+  }
+
+  if (hasAnyText(text, ["mcp", "model context protocol", "agent consuming"])) {
+    return "Agents need structured Design System context before they can act safely";
+  }
+
+  return candidate.title;
 }
 
 function topicGroupFor(
@@ -186,7 +338,10 @@ function qualityRejection(
   candidate: CandidateResource,
   score: EditorialScore,
   topicGroup: TopicGroup,
-  topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics" | "editorialMissionMatch">
+  topics: Pick<
+    EditorialSelectionDecision,
+    "designSystemTopics" | "workflowTopics" | "aiTopics" | "editorialMissionMatch" | "editorialValueMatch" | "actionabilityScore" | "mondayMorningChange"
+  >
 ): string {
   if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(topics)) {
     return "Skipped because AI Research lacks a direct Design System workflow connection.";
@@ -194,6 +349,18 @@ function qualityRejection(
 
   if (!topics.editorialMissionMatch) {
     return missionRejectReason;
+  }
+
+  if (!topics.editorialValueMatch) {
+    return valueRejectReason;
+  }
+
+  if (topics.mondayMorningChange === "nothing") {
+    return mondayRejectReason;
+  }
+
+  if (topics.actionabilityScore < minimumActionabilityScore) {
+    return `Skipped because actionabilityScore (${topics.actionabilityScore}) is below ${minimumActionabilityScore}.`;
   }
 
   if (score.beginnerPenalty >= 20) {
@@ -231,8 +398,8 @@ function selectionReason(topicGroup: TopicGroup, score: EditorialScore, impactSc
   return `Candidate mapped to ${topicGroup} with editorial score ${score.totalScore} and workflow-impact score ${impactScore}.`;
 }
 
-function selectedBecause(topicGroup: TopicGroup, score: EditorialScore, impactScore: number): string {
-  return `Selected as the strongest ${topicGroup} signal after balancing quality, workflow impact, and topic diversity. Editorial score: ${score.totalScore}; workflow impact: ${impactScore}.`;
+function selectedBecause(topicGroup: TopicGroup, score: EditorialScore, impactScore: number, actionabilityScore: number): string {
+  return `Selected as the strongest ${topicGroup} signal after balancing actionability, workflow impact, quality, and topic diversity. Editorial score: ${score.totalScore}; actionability: ${actionabilityScore}; workflow impact: ${impactScore}.`;
 }
 
 function skippedBecause(reason: string): string {
@@ -248,6 +415,9 @@ function aiResearchRejectionReason(decision: Pick<EditorialSelectionDecision, "t
 }
 
 function compareCandidates(a: ScoredCandidate, b: ScoredCandidate): number {
+  const actionabilityDifference = b.decision.actionabilityScore - a.decision.actionabilityScore;
+  if (actionabilityDifference !== 0) return actionabilityDifference;
+
   const scoreDifference = b.decision.editorialScore.totalScore - a.decision.editorialScore.totalScore;
   if (scoreDifference !== 0) return scoreDifference;
 
@@ -273,6 +443,9 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
     const editorialScore = scoreEditorialCandidate(candidate, candidates);
     const topicGroup = topicGroupFor(candidate, topics.aiTopics, topics.designSystemTopics, topics.workflowTopics);
     const missionMatch = missionMatchFor(candidate, editorialScore, topics);
+    const editorialValue = editorialValueFor(candidate);
+    const actionabilityScore = actionabilityScoreFor(candidate);
+    const mondayMorningChange = mondayMorningChangeFor(candidate, actionabilityScore);
     const baseDecision = {
       title: candidate.title,
       url: candidate.url,
@@ -280,6 +453,10 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       editorialScore,
       topicGroup,
       ...missionMatch,
+      ...editorialValue,
+      actionabilityScore,
+      mondayMorningChange,
+      editorialTitle: editorialTitleFor(candidate),
       aiTopics: topics.aiTopics,
       designSystemTopics: topics.designSystemTopics,
       workflowTopics: topics.workflowTopics
@@ -321,7 +498,12 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
   const selectedUrls = new Set(finalSelected.map((item) => item.candidate.url));
   const selectedDecisions = finalSelected.map((item) => ({
     ...item.decision,
-    selectedBecause: selectedBecause(item.decision.topicGroup, item.decision.editorialScore, item.workflowImpactScore),
+    selectedBecause: selectedBecause(
+      item.decision.topicGroup,
+      item.decision.editorialScore,
+      item.workflowImpactScore,
+      item.decision.actionabilityScore
+    ),
     skippedBecause: ""
   }));
   const rejectedDecisions = scoredCandidates

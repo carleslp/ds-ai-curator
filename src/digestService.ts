@@ -60,6 +60,11 @@ type CandidatePreview = {
   skippedBecause: string;
   editorialMissionMatch: boolean;
   missionReason: string;
+  editorialValueMatch: boolean;
+  editorialValueReason: string;
+  actionabilityScore: number;
+  mondayMorningChange: string;
+  editorialTitle: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -80,6 +85,11 @@ type SelectedPreview = {
   skippedBecause?: string;
   editorialMissionMatch?: boolean;
   missionReason?: string;
+  editorialValueMatch?: boolean;
+  editorialValueReason?: string;
+  actionabilityScore?: number;
+  mondayMorningChange?: string;
+  editorialTitle?: string;
   aiTopics: AiTopic[];
   designSystemTopics: DesignSystemTopic[];
   workflowTopics: WorkflowTopic[];
@@ -171,6 +181,7 @@ function candidateToResource(candidate: CandidateResource): Resource {
 
   return {
     title: candidate.title,
+    original_title: candidate.title,
     url: candidate.url,
     source: candidate.source,
     type: "Article",
@@ -190,8 +201,28 @@ function candidateToResource(candidate: CandidateResource): Resource {
   };
 }
 
+function applySelectionMetadataToResource(resource: Resource, decision?: EditorialSelectionDecision): Resource {
+  if (!decision) return resource;
+  const insight = truncateText(
+    `The important shift is this: ${decision.mondayMorningChange} ${decision.editorialValueReason}`,
+    280
+  );
+
+  return {
+    ...resource,
+    original_title: resource.original_title ?? decision.title,
+    editorialTitle: decision.editorialTitle,
+    actionabilityScore: decision.actionabilityScore,
+    cleanSummary: insight,
+    summary: insight
+  };
+}
+
 function buildCandidateFallbackDigest(selectionResult: EditorialSelectionResult): Digest {
-  const resources = selectionResult.selectedCandidates.map(candidateToResource);
+  const decisionMap = decisionsByUrl(selectionResult.selectedDecisions);
+  const resources = selectionResult.selectedCandidates.map((candidate) =>
+    applySelectionMetadataToResource(candidateToResource(candidate), decisionMap.get(normalizeUrl(candidate.url)))
+  );
   const editorsPick = selectionResult.editorsPickCandidate
     ? resources.find((resource) => normalizeUrl(resource.url) === normalizeUrl(selectionResult.editorsPickCandidate?.url ?? "")) ?? null
     : null;
@@ -200,8 +231,8 @@ function buildCandidateFallbackDigest(selectionResult: EditorialSelectionResult)
     date: todayIsoDate(),
     trend_summary:
       resources.length > 0
-        ? "Curated from trusted Design System sources. Editorial ranking is running in fallback mode today."
-        : "No mature Design System AI signals passed the editorial gate today.",
+        ? buildCurationDiagnosis(selectionResult.selectedDecisions)
+        : "No mature Design System AI signal produced a concrete Monday-afternoon workflow change today.",
     editorsPick,
     resources
   });
@@ -232,6 +263,28 @@ function decisionsByUrl(decisions: EditorialSelectionDecision[]): Map<string, Ed
   return new Map(decisions.map((decision) => [normalizeUrl(decision.url), decision]));
 }
 
+function buildCurationDiagnosis(decisions: EditorialSelectionDecision[]): string {
+  const text = decisions.map((decision) => `${decision.editorialTitle} ${decision.editorialValueReason}`).join(" ").toLowerCase();
+
+  if (text.includes("component metadata") || text.includes("agent")) {
+    return "This week's signals point toward AI becoming better at consuming Design Systems than generating them.";
+  }
+
+  if (text.includes("documentation") || text.includes("machine-readable")) {
+    return "Documentation quality is emerging as the limiting factor for reliable AI-assisted Design System workflows.";
+  }
+
+  if (text.includes("figma") || text.includes("design-to-code")) {
+    return "The bottleneck is moving from UI generation to structured Figma and component metadata.";
+  }
+
+  if (text.includes("qa") || text.includes("accessibility")) {
+    return "The useful AI signal is shifting toward review, accessibility, and QA workflows that Design System teams can operationalize.";
+  }
+
+  return "The strongest signal this week is practical workflow change, not feature novelty.";
+}
+
 function previewCandidates(candidates: CandidateResource[], decisions: EditorialSelectionDecision[] = []): CandidatePreview[] {
   const decisionMap = decisionsByUrl(decisions);
   return candidates.slice(0, 10).map((candidate) => {
@@ -253,6 +306,11 @@ function previewCandidates(candidates: CandidateResource[], decisions: Editorial
       skippedBecause: decision?.skippedBecause ?? "",
       editorialMissionMatch: decision?.editorialMissionMatch ?? false,
       missionReason: decision?.missionReason ?? "No editorial selection decision was available for this preview.",
+      editorialValueMatch: decision?.editorialValueMatch ?? false,
+      editorialValueReason: decision?.editorialValueReason ?? "",
+      actionabilityScore: decision?.actionabilityScore ?? 0,
+      mondayMorningChange: decision?.mondayMorningChange ?? "",
+      editorialTitle: decision?.editorialTitle ?? candidate.title,
       aiTopics: topics.aiTopics,
       designSystemTopics: topics.designSystemTopics,
       workflowTopics: topics.workflowTopics
@@ -283,6 +341,11 @@ function previewResources(resources: Resource[], decisions: EditorialSelectionDe
       skippedBecause: decision?.skippedBecause,
       editorialMissionMatch: decision?.editorialMissionMatch,
       missionReason: decision?.missionReason,
+      editorialValueMatch: decision?.editorialValueMatch,
+      editorialValueReason: decision?.editorialValueReason,
+      actionabilityScore: decision?.actionabilityScore,
+      mondayMorningChange: decision?.mondayMorningChange,
+      editorialTitle: decision?.editorialTitle,
       aiTopics: classifyTopicsFromResource(resource).aiTopics,
       designSystemTopics: classifyTopicsFromResource(resource).designSystemTopics,
       workflowTopics: classifyTopicsFromResource(resource).workflowTopics,
@@ -297,9 +360,14 @@ function applyWorkflowImpactEditorsPick(digest: Digest, selectionResult: Editori
   const pickUrl = selectionResult.editorsPickCandidate ? normalizeUrl(selectionResult.editorsPickCandidate.url) : "";
   if (!pickUrl) return digest;
 
-  const editorsPick = digest.resources.find((resource) => normalizeUrl(resource.url) === pickUrl) ?? digest.editorsPick;
+  const decisionMap = decisionsByUrl(selectionResult.selectedDecisions);
+  const resources = digest.resources.map((resource) =>
+    applySelectionMetadataToResource(resource, decisionMap.get(normalizeUrl(resource.url)))
+  );
+  const editorsPick = resources.find((resource) => normalizeUrl(resource.url) === pickUrl) ?? digest.editorsPick;
   return {
     ...digest,
+    resources,
     editorsPick
   };
 }

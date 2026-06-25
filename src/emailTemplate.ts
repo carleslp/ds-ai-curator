@@ -2,6 +2,8 @@ import { cleanText, truncateText } from "./textUtils.js";
 
 export type Resource = {
   title: string;
+  original_title?: string;
+  editorialTitle?: string;
   url: string;
   source: string;
   type: string;
@@ -22,6 +24,7 @@ export type Resource = {
   is_real_source?: boolean;
   relevance_score?: number;
   worth_your_time_score?: number;
+  actionabilityScore?: number;
 };
 
 export type Digest = {
@@ -55,6 +58,7 @@ function safeUrl(value: unknown): string {
 
 function renderResourceCard(resource: Resource): string {
   const date = cleanText(resource.published_date || resource.date || "Recent");
+  const displayTitle = cleanText(resource.editorialTitle || resource.title);
   const summary = truncateText(resource.cleanSummary ?? resource.summary, 280);
   const whyItMatters = resource.why_it_matters_to_our_team
     ? truncateText(resource.why_it_matters_to_our_team, 220)
@@ -82,7 +86,7 @@ function renderResourceCard(resource: Resource): string {
 
       <div style="font-size:16px;font-weight:800;color:#111827;margin-bottom:6px;line-height:1.35;">
         <a href="${safeUrl(resource.url)}" style="color:#111827;text-decoration:none;">
-          ${escapeHtml(cleanText(resource.title))}
+          ${escapeHtml(displayTitle)}
         </a>
       </div>
 
@@ -180,6 +184,7 @@ function renderTheSignal(theSignal: string): string {
 function renderEditorsPick(editorsPick: Resource | null): string {
   if (!editorsPick) return "";
 
+  const displayTitle = cleanText(editorsPick.editorialTitle || editorsPick.title);
   const summary = truncateText(editorsPick.cleanSummary ?? editorsPick.summary, 220);
   const whyItMatters = editorsPick.why_it_matters_to_our_team
     ? truncateText(editorsPick.why_it_matters_to_our_team, 180)
@@ -211,7 +216,7 @@ function renderEditorsPick(editorsPick: Resource | null): string {
                           </table>
                           <div style="font-size:18px;font-weight:900;line-height:1.35;margin-bottom:8px;">
                             <a href="${safeUrl(editorsPick.url)}" style="color:#ffffff;text-decoration:none;">
-                              ${escapeHtml(cleanText(editorsPick.title))}
+                              ${escapeHtml(displayTitle)}
                             </a>
                           </div>
                           <div style="font-size:13px;color:#ddd6fe;line-height:1.65;margin-bottom:10px;">
