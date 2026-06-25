@@ -113,6 +113,7 @@ function renderResourceGrid(resources: Resource[]): string {
 
 export function renderEmail(digest: Digest): string {
   const resources = digest.resources.slice(0, 5);
+  const resourceLabel = `${resources.length} ${resources.length === 1 ? "resource" : "resources"}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -197,7 +198,7 @@ export function renderEmail(digest: Digest): string {
                 <tr>
                   <td class="email-padding" style="padding:30px 40px;">
                     <div style="font-size:9px;font-weight:900;color:#7c3aed;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:16px;padding-bottom:9px;border-bottom:1px solid #f3f4f6;">
-                      5 resources · AI + Design Systems
+                      ${escapeHtml(resourceLabel)} · AI + Design Systems
                     </div>
 
                     <table width="100%" cellpadding="0" cellspacing="0" border="0">
