@@ -3,6 +3,7 @@ import {
   type CandidateResource,
   type SourceResult
 } from "./collectCandidates.js";
+import { withEditorialSections } from "./editorial.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
   editorialFinalScore,
@@ -69,11 +70,11 @@ export function buildSubject(date: string): string {
 }
 
 function createEmergencyFallbackDigest(): Digest {
-  return {
+  return withEditorialSections({
     date: todayIsoDate(),
     trend_summary: "Fallback: candidate collection and live ranking are currently unavailable.",
     resources: []
-  };
+  });
 }
 
 function normalizeUrl(url: string): string {
@@ -173,14 +174,14 @@ function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): 
 
   const resources = selectedCandidates.map(candidateToResource);
 
-  return {
+  return withEditorialSections({
     date: todayIsoDate(),
     trend_summary:
       resources.length > 0
         ? "Candidate-based digest generated from curated Design System sources because LLM ranking was unavailable."
         : "Fallback: no relevant candidate resources were available from curated sources.",
     resources
-  };
+  });
 }
 
 function getErrorMessage(error: unknown): string {
@@ -305,24 +306,25 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     try {
       console.log("Step 4: LLM ranking/summarization started.");
       const ranked = await rankWithAvailableProvider(filteredCandidates);
-      console.log(`Step 5: LLM ranking/summarization completed (${ranked.digest.resources.length} selected).`);
+      const editorialDigest = withEditorialSections(ranked.digest);
+      console.log(`Step 5: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
 
-      cachedDigest = ranked.digest;
-      rememberDigest(ranked.digest);
+      cachedDigest = editorialDigest;
+      rememberDigest(editorialDigest);
       console.log("Step 6: Digest cached.");
 
       return {
-        digest: ranked.digest,
+        digest: editorialDigest,
         mode: ranked.provider === "openAI" ? "liveOpenAI" : "liveGemini",
         hasOpenAIKey,
         hasGeminiKey,
         candidateCount: candidates.length,
         filteredCandidateCount: filteredCandidates.length,
-        selectedResourceCount: ranked.digest.resources.length,
+        selectedResourceCount: editorialDigest.resources.length,
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
-        selectedPreview: previewResources(ranked.digest.resources)
+        selectedPreview: previewResources(editorialDigest.resources)
       };
     } catch (error) {
       const fallbackReason = getErrorMessage(error);

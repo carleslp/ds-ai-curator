@@ -1,3 +1,4 @@
+import { hasEditorialSections } from "../src/editorial.js";
 import { getDailyDigest } from "../src/digestService.js";
 
 type VercelRequest = {
@@ -29,6 +30,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
     filteredCandidateCount: result.filteredCandidateCount,
     selectedResourceCount: result.selectedResourceCount,
     resourceCount: result.selectedResourceCount,
+    hasEditorialSections: hasEditorialSections(result.digest),
+    executiveBriefPreview: result.digest.executiveBrief.slice(0, 220),
+    editorsPickTitle: result.digest.editorsPick?.title ?? "",
+    suggestedExperiment: result.digest.suggestedExperiment,
     sourceResults: result.sourceResults,
     rejectedCandidates: result.rejectedCandidates,
     candidatesPreview: result.candidatesPreview,

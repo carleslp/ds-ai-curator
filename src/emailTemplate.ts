@@ -1,4 +1,4 @@
-import { truncateText } from "./textUtils.js";
+import { cleanText, truncateText } from "./textUtils.js";
 
 export type Resource = {
   title: string;
@@ -20,6 +20,10 @@ export type Resource = {
 export type Digest = {
   date: string;
   trend_summary: string;
+  executiveBrief: string;
+  editorsPick: Resource | null;
+  suggestedExperiment: string;
+  teamDiscussionQuestions: string[];
   resources: Resource[];
 };
 
@@ -39,7 +43,7 @@ function safeUrl(value: unknown): string {
 }
 
 function renderResourceCard(resource: Resource): string {
-  const date = resource.published_date || resource.date || "Recent";
+  const date = cleanText(resource.published_date || resource.date || "Recent");
   const summary = truncateText(resource.cleanSummary ?? resource.summary, 280);
   const whyItMatters = resource.why_it_matters_to_our_team
     ? truncateText(resource.why_it_matters_to_our_team, 220)
@@ -53,7 +57,7 @@ function renderResourceCard(resource: Resource): string {
         <tr>
           <td>
             <span style="font-size:9px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#ede9fe;color:#6d28d9;">
-              ${escapeHtml(resource.type)}
+              ${escapeHtml(cleanText(resource.type))}
             </span>
           </td>
           <td style="text-align:right;font-size:10px;color:#9ca3af;white-space:nowrap;">
@@ -64,7 +68,7 @@ function renderResourceCard(resource: Resource): string {
 
       <div style="font-size:16px;font-weight:800;color:#111827;margin-bottom:6px;line-height:1.35;">
         <a href="${safeUrl(resource.url)}" style="color:#111827;text-decoration:none;">
-          ${escapeHtml(resource.title)}
+          ${escapeHtml(cleanText(resource.title))}
         </a>
       </div>
 
@@ -83,7 +87,7 @@ function renderResourceCard(resource: Resource): string {
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>
           <td style="font-size:11px;color:#9ca3af;font-style:italic;">
-            ${escapeHtml(resource.source)}
+            ${escapeHtml(cleanText(resource.source))}
           </td>
           <td style="text-align:right;">
             <a href="${safeUrl(resource.url)}" style="font-size:11px;color:#7c3aed;font-weight:800;text-decoration:none;">
@@ -118,9 +122,140 @@ function renderResourceGrid(resources: Resource[]): string {
   return rows.join("");
 }
 
+function renderSectionLabel(label: string): string {
+  return `
+                    <div style="font-size:9px;font-weight:900;color:#7c3aed;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:14px;padding-bottom:9px;border-bottom:1px solid #f3f4f6;">
+                      ${escapeHtml(label)}
+                    </div>`;
+}
+
+function renderExecutiveBrief(executiveBrief: string): string {
+  const brief = cleanText(executiveBrief);
+  if (!brief) return "";
+
+  return `
+                    ${renderSectionLabel("Executive Brief")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:26px;">
+                      <tr>
+                        <td style="padding:20px;background:#fbfaff;border:1px solid #ede9fe;border-radius:14px;">
+                          <div style="font-size:14px;color:#374151;line-height:1.7;">
+                            ${escapeHtml(brief)}
+                          </div>
+                        </td>
+                      </tr>
+                    </table>
+`;
+}
+
+function renderEditorsPick(editorsPick: Resource | null): string {
+  if (!editorsPick) return "";
+
+  const summary = truncateText(editorsPick.cleanSummary ?? editorsPick.summary, 220);
+  const whyItMatters = editorsPick.why_it_matters_to_our_team
+    ? truncateText(editorsPick.why_it_matters_to_our_team, 180)
+    : "";
+  const date = cleanText(editorsPick.published_date || editorsPick.date || "Recent");
+
+  return `
+                    ${renderSectionLabel("Editor's Pick")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;background:#2d1054;border-radius:16px;">
+                      <tr>
+                        <td style="padding:22px;border-left:4px solid #a78bfa;border-radius:16px;">
+                          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px;">
+                            <tr>
+                              <td>
+                                <span style="font-size:9px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#ede9fe;color:#6d28d9;">
+                                  ${escapeHtml(cleanText(editorsPick.type))}
+                                </span>
+                              </td>
+                              <td style="text-align:right;font-size:10px;color:#c4b5fd;white-space:nowrap;">
+                                ${escapeHtml(date)}
+                              </td>
+                            </tr>
+                          </table>
+                          <div style="font-size:18px;font-weight:900;line-height:1.35;margin-bottom:8px;">
+                            <a href="${safeUrl(editorsPick.url)}" style="color:#ffffff;text-decoration:none;">
+                              ${escapeHtml(cleanText(editorsPick.title))}
+                            </a>
+                          </div>
+                          <div style="font-size:13px;color:#ddd6fe;line-height:1.65;margin-bottom:10px;">
+                            ${escapeHtml(summary)}
+                          </div>
+                          ${
+                            whyItMatters
+                              ? `<div style="font-size:12px;color:#f5f3ff;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#3b1a68;border-left:3px solid #c4b5fd;border-radius:8px;">
+                            <strong style="color:#ffffff;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
+                          </div>`
+                              : ""
+                          }
+                          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                              <td style="font-size:11px;color:#c4b5fd;font-style:italic;">
+                                ${escapeHtml(cleanText(editorsPick.source))}
+                              </td>
+                              <td style="text-align:right;">
+                                <a href="${safeUrl(editorsPick.url)}" style="font-size:11px;color:#ffffff;font-weight:800;text-decoration:none;">
+                                  Read →
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>`;
+}
+
+function renderResourcesSection(resources: Resource[], resourceLabel: string): string {
+  return `
+                    ${renderSectionLabel(`${resourceLabel} · AI + Design Systems`)}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
+                      ${renderResourceGrid(resources)}
+                    </table>`;
+}
+
+function renderSuggestedExperiment(suggestedExperiment: string): string {
+  const experiment = cleanText(suggestedExperiment);
+  if (!experiment) return "";
+
+  return `
+                    ${renderSectionLabel("Suggested Experiment")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:26px;">
+                      <tr>
+                        <td style="padding:18px;background:#ffffff;border:1px solid #ede9f3;border-radius:14px;">
+                          <div style="font-size:13px;color:#374151;line-height:1.65;">
+                            ${escapeHtml(experiment)}
+                          </div>
+                        </td>
+                      </tr>
+                    </table>`;
+}
+
+function renderTeamQuestions(teamDiscussionQuestions: string[]): string {
+  const questions = teamDiscussionQuestions.map((question) => cleanText(question)).filter(Boolean).slice(0, 3);
+  if (questions.length === 0) return "";
+
+  return `
+                    ${renderSectionLabel("Questions for our team")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                      <tr>
+                        <td style="padding:18px;background:#f9fafb;border:1px solid #f3f4f6;border-radius:14px;">
+                          ${questions
+                            .map(
+                              (question) => `
+                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:8px;">
+                            ${escapeHtml(question)}
+                          </div>`
+                            )
+                            .join("")}
+                        </td>
+                      </tr>
+                    </table>`;
+}
+
 export function renderEmail(digest: Digest): string {
   const resources = digest.resources.slice(0, 5);
-  const resourceLabel = `${resources.length} ${resources.length === 1 ? "resource" : "resources"}`;
+  const resourceCount = digest.resources.length;
+  const resourceLabel = `${resourceCount} ${resourceCount === 1 ? "resource" : "resources"}`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -128,26 +263,6 @@ export function renderEmail(digest: Digest): string {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DS × AI Curator</title>
-  <style>
-    @media only screen and (max-width: 700px) {
-      .email-container {
-        width: 100% !important;
-        max-width: 100% !important;
-      }
-
-      .email-padding {
-        padding-left: 20px !important;
-        padding-right: 20px !important;
-      }
-
-      .resource-column {
-        display: block !important;
-        width: 100% !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-      }
-    }
-  </style>
 </head>
 <body style="margin:0;padding:24px 16px;background:#F0EEF8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -204,13 +319,11 @@ export function renderEmail(digest: Digest): string {
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
                 <tr>
                   <td class="email-padding" style="padding:30px 40px;">
-                    <div style="font-size:9px;font-weight:900;color:#7c3aed;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:16px;padding-bottom:9px;border-bottom:1px solid #f3f4f6;">
-                      ${escapeHtml(resourceLabel)} · AI + Design Systems
-                    </div>
-
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                      ${renderResourceGrid(resources)}
-                    </table>
+                    ${renderExecutiveBrief(digest.executiveBrief)}
+                    ${renderEditorsPick(digest.editorsPick)}
+                    ${renderResourcesSection(resources, resourceLabel)}
+                    ${renderSuggestedExperiment(digest.suggestedExperiment)}
+                    ${renderTeamQuestions(digest.teamDiscussionQuestions)}
                   </td>
                 </tr>
               </table>

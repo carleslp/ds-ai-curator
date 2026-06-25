@@ -1,4 +1,5 @@
 import http from "node:http";
+import { hasEditorialSections } from "./editorial.js";
 import { renderEmail } from "./emailTemplate.js";
 import { buildSubject, getDailyDigest } from "./digestService.js";
 
@@ -51,6 +52,10 @@ const server = http.createServer(async (request, response) => {
       filteredCandidateCount: result.filteredCandidateCount,
       selectedResourceCount: result.selectedResourceCount,
       resourceCount: result.selectedResourceCount,
+      hasEditorialSections: hasEditorialSections(digest),
+      executiveBriefPreview: digest.executiveBrief.slice(0, 220),
+      editorsPickTitle: digest.editorsPick?.title ?? "",
+      suggestedExperiment: digest.suggestedExperiment,
       sourceResults: result.sourceResults,
       rejectedCandidates: result.rejectedCandidates,
       candidatesPreview: result.candidatesPreview,

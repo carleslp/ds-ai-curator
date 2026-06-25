@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { collectCandidatesWithDiagnostics } from "./collectCandidates.js";
+import { withEditorialSections } from "./editorial.js";
 import { renderEmail } from "./emailTemplate.js";
 
 const releaseHtml = `
@@ -38,7 +39,7 @@ assert.ok(storybookRelease.cleanSummary.length <= 280, "Expected clean summary t
 assert.match(storybookRelease.cleanSummary, /Storybook AI docs for MCP component testing/i);
 assert.doesNotMatch(storybookRelease.cleanSummary, /<h2|<ul|<li|data-hovercard|pull request metadata/i);
 
-const html = renderEmail({
+const html = renderEmail(withEditorialSections({
   date: "2026-06-25",
   trend_summary: "Testing release sanitization.",
   resources: [
@@ -55,11 +56,30 @@ const html = renderEmail({
       directDesignSystemEvidence: storybookRelease.directDesignSystemEvidence
     }
   ]
-});
+}));
 
 assert.match(html, /Storybook release: v10\.5\.0-alpha\.7/);
 assert.match(html, /Storybook AI docs for MCP component testing/i);
 assert.doesNotMatch(html, /&lt;h2|&lt;ul|&lt;li|data-hovercard|pull request metadata/i);
+assert.ok(
+  html.indexOf("Executive Brief") < html.indexOf("Editor&#039;s Pick") &&
+    html.indexOf("Editor&#039;s Pick") < html.indexOf("1 resource · AI + Design Systems") &&
+    html.indexOf("1 resource · AI + Design Systems") < html.indexOf("Suggested Experiment") &&
+    html.indexOf("Suggested Experiment") < html.indexOf("Questions for our team"),
+  "Expected v3 editorial sections to render in the requested order."
+);
+
+const htmlWithoutOptionalSections = renderEmail({
+  date: "2026-06-25",
+  trend_summary: "Testing optional editorial sections.",
+  executiveBrief: "Brief only.",
+  editorsPick: null,
+  suggestedExperiment: "",
+  teamDiscussionQuestions: [],
+  resources: []
+});
+
+assert.doesNotMatch(htmlWithoutOptionalSections, /Editor&#039;s Pick|Suggested Experiment|Questions for our team/);
 
 console.log("Email sanitization test passed.");
 

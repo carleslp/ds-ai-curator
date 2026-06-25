@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import type { CandidateResource } from "./collectCandidates.js";
+import { withEditorialSections } from "./editorial.js";
 import type { Digest } from "./emailTemplate.js";
 import { truncateText } from "./textUtils.js";
 
@@ -216,7 +217,7 @@ function jsonSchema() {
 }
 
 function toPublicDigest(rankedDigest: RankedDigest): Digest {
-  return {
+  return withEditorialSections({
     date: rankedDigest.date,
     trend_summary: rankedDigest.trend_summary,
     resources: rankedDigest.resources.map((resource) => ({
@@ -234,7 +235,7 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       relevance_score: resource.relevance_score,
       worth_your_time_score: resource.worth_your_time_score
     }))
-  };
+  });
 }
 
 function assertSelectedFromCandidates(resources: RankedDigest["resources"], candidates: CandidateResource[]) {
