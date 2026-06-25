@@ -25,6 +25,10 @@ export type DesignSystemTopic =
   | "Metadata"
   | "Dev Mode"
   | "Variables"
+  | "Accessibility"
+  | "Design-to-Code"
+  | "QA Automation"
+  | "Component Generation"
   | "Enterprise";
 
 export type WorkflowTopic =
@@ -74,6 +78,10 @@ const designSystemTopicRules: TopicRule<DesignSystemTopic>[] = [
   { topic: "Metadata", terms: ["metadata", "manifest", "schema"] },
   { topic: "Dev Mode", terms: ["dev mode"] },
   { topic: "Variables", terms: ["variables", "figma variables"] },
+  { topic: "Accessibility", terms: ["accessibility", "accessibility automation", "a11y"] },
+  { topic: "Design-to-Code", terms: ["design-to-code", "design to code", "mockups to code", "figma2code"] },
+  { topic: "QA Automation", terms: ["qa automation", "automated qa", "visual regression"] },
+  { topic: "Component Generation", terms: ["component generation", "ui code generation", "generate components"] },
   { topic: "Enterprise", terms: ["enterprise design system", "enterprise workflow", "governance", "internal design system"] }
 ];
 

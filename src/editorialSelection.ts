@@ -42,9 +42,12 @@ const aiResearchDesignSystemTopics: DesignSystemTopic[] = [
   "Metadata",
   "Design Tokens",
   "Component APIs",
-  "Documentation"
+  "Documentation",
+  "Accessibility",
+  "Design-to-Code",
+  "QA Automation",
+  "Component Generation"
 ];
-const aiResearchAiTopics: AiTopic[] = ["Design-to-Code", "QA Automation", "Accessibility AI"];
 
 function textForCandidate(candidate: CandidateResource): string {
   return `${candidate.title} ${candidate.source} ${candidate.url} ${candidate.snippet} ${candidate.cleanSummary} ${candidate.rawText} ${candidate.directDesignSystemEvidence}`.toLowerCase();
@@ -103,18 +106,9 @@ function workflowImpactScore(score: EditorialScore, decisionTopics: Pick<Editori
 }
 
 function hasAiResearchWorkflowConnection(
-  candidate: CandidateResource,
   topics: Pick<EditorialSelectionDecision, "designSystemTopics" | "workflowTopics" | "aiTopics">
 ): boolean {
-  const text = textForCandidate(candidate);
-
-  return (
-    hasAnyTopic(topics.designSystemTopics, aiResearchDesignSystemTopics) ||
-    hasAnyTopic(topics.aiTopics, aiResearchAiTopics) ||
-    topics.workflowTopics.includes("Design QA") ||
-    text.includes("accessibility") ||
-    text.includes("component generation")
-  );
+  return hasAnyTopic(topics.designSystemTopics, aiResearchDesignSystemTopics);
 }
 
 function qualityRejection(
@@ -131,7 +125,7 @@ function qualityRejection(
     return "Skipped because it looks primarily like marketing or a sales page.";
   }
 
-  if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(candidate, topics)) {
+  if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(topics)) {
     return "Skipped because AI Research lacks a direct Design System workflow connection.";
   }
 
@@ -168,6 +162,14 @@ function selectedBecause(topicGroup: TopicGroup, score: EditorialScore, impactSc
 
 function skippedBecause(reason: string): string {
   return reason || "Skipped to preserve topic diversity; another stronger article already covered this topic group.";
+}
+
+function aiResearchRejectionReason(decision: Pick<EditorialSelectionDecision, "topicGroup" | "designSystemTopics" | "workflowTopics" | "aiTopics">): string {
+  if (decision.topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(decision)) {
+    return "Skipped because AI Research lacks a direct Design System workflow connection.";
+  }
+
+  return "";
 }
 
 function compareCandidates(a: ScoredCandidate, b: ScoredCandidate): number {
@@ -238,8 +240,9 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
     selectedGroups.add(group);
   }
 
-  const selectedUrls = new Set(selected.map((item) => item.candidate.url));
-  const selectedDecisions = selected.map((item) => ({
+  const finalSelected = selected.filter((item) => !aiResearchRejectionReason(item.decision));
+  const selectedUrls = new Set(finalSelected.map((item) => item.candidate.url));
+  const selectedDecisions = finalSelected.map((item) => ({
     ...item.decision,
     selectedBecause: selectedBecause(item.decision.topicGroup, item.decision.editorialScore, item.workflowImpactScore),
     skippedBecause: ""
@@ -250,7 +253,7 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       const duplicateTopicReason = selectedGroups.has(item.decision.topicGroup)
         ? `Skipped to preserve diversity; ${item.decision.topicGroup} is already represented.`
         : "";
-      const reason = item.decision.rejectionReason || duplicateTopicReason;
+      const reason = item.decision.rejectionReason || aiResearchRejectionReason(item.decision) || duplicateTopicReason;
 
       return {
         ...item.decision,
@@ -260,10 +263,10 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       };
     });
   const decisions = [...selectedDecisions, ...rejectedDecisions];
-  const editorsPickCandidate = selected.length ? [...selected].sort(compareWorkflowImpact)[0].candidate : undefined;
+  const editorsPickCandidate = finalSelected.length ? [...finalSelected].sort(compareWorkflowImpact)[0].candidate : undefined;
 
   return {
-    selectedCandidates: selected.map((item) => item.candidate),
+    selectedCandidates: finalSelected.map((item) => item.candidate),
     decisions,
     selectedDecisions,
     rejectedDecisions,
