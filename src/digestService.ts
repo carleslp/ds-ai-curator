@@ -32,6 +32,7 @@ type SelectedPreview = {
   source: string;
   relevance_score: number;
   worth_your_time_score: number;
+  directDesignSystemEvidence: string;
 };
 
 type DailyDigestResult = {
@@ -214,7 +215,8 @@ function previewResources(resources: Resource[]): SelectedPreview[] {
     url: resource.url,
     source: resource.source,
     relevance_score: resource.relevance_score ?? 0,
-    worth_your_time_score: resource.worth_your_time_score ?? 0
+    worth_your_time_score: resource.worth_your_time_score ?? 0,
+    directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
   }));
 }
 

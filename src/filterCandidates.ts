@@ -55,16 +55,20 @@ const directDesignSystemSignals = [
   "component library",
   "component libraries",
   "design tokens",
-  "figma",
   "storybook",
   "design-to-code",
-  "frontend",
-  "accessibility",
+  "design to code",
+  "figma component",
+  "figma library",
+  "mcp figma",
+  "mcp storybook",
+  "design system agent",
+  "qa design system agent",
   "design qa",
-  "ui generation",
-  "component generation",
-  "react",
-  "react native"
+  "ai design system",
+  "ai design systems",
+  "ai component library",
+  "ai design tokens"
 ];
 
 const genericAiSignals = [
@@ -85,6 +89,20 @@ const genericMcpOrAgentSignals = [
   "privacy leakage",
   "script generation",
   "telecom"
+];
+
+const falsePositiveDomainSignals = [
+  "agriculture",
+  "smallholder",
+  "farmers",
+  "farming",
+  "telecom",
+  "peptide",
+  "protein",
+  "scientific workflow",
+  "music retrieval",
+  "fine-grained music retrieval",
+  "figma: towards fine-grained music retrieval"
 ];
 
 const requiredForGenericAi = [
@@ -133,9 +151,42 @@ const documentationSpecificSignals = [
   "design system",
   "design systems",
   "design tokens",
-  "component",
   "components",
-  "design-to-code"
+  "code connect",
+  "dev mode",
+  "design-to-code",
+  "design to code"
+];
+
+const figmaSpecificSignals = [
+  " ai ",
+  "artificial intelligence",
+  "mcp",
+  "model context protocol",
+  "design system",
+  "design systems",
+  "components",
+  "component",
+  "tokens",
+  "code connect",
+  "dev mode",
+  "design-to-code",
+  "design to code"
+];
+
+const figmaAngleSignals = [
+  " ai ",
+  "artificial intelligence",
+  "mcp",
+  "model context protocol",
+  "components",
+  "component",
+  "tokens",
+  "code connect",
+  "dev mode",
+  "design-to-code",
+  "design to code",
+  "agent"
 ];
 
 const rejectionSignals = [
@@ -221,8 +272,19 @@ function isGitHubTopicPage(candidate: CandidateResource): boolean {
   }
 }
 
+function isFigmaSource(candidate: CandidateResource): boolean {
+  const source = candidate.source.toLowerCase();
+  const url = candidate.url.toLowerCase();
+  return source.includes("figma") || url.includes("figma.com") || url.includes("help.figma.com");
+}
+
+function isFigmaWeave(candidate: CandidateResource): boolean {
+  return candidateContent(candidate).includes("weave");
+}
+
 function rejectionReason(candidate: CandidateResource): string | undefined {
   const text = haystack(candidate);
+  const content = candidateContent(candidate);
   const hasHighPriorityKeyword = containsAny(text, highPriorityKeywords);
   const hasDirectEvidence = candidate.directDesignSystemEvidence.trim().length > 0;
   const hasDirectDesignSystemSignal = containsAny(text, directDesignSystemSignals);
@@ -235,15 +297,31 @@ function rejectionReason(candidate: CandidateResource): string | undefined {
     return "Rejected because directDesignSystemEvidence is empty.";
   }
 
+  if (containsAny(content, falsePositiveDomainSignals) && !hasDirectDesignSystemSignal) {
+    return "Rejected false-positive domain match without explicit UI or Design System evidence.";
+  }
+
   if (!hasHighPriorityKeyword) {
     return "Rejected because no high-priority Design System keyword was found.";
   }
 
-  if (isArxiv(candidate) && containsAny(text, genericMcpOrAgentSignals) && !hasDirectDesignSystemSignal) {
+  if (isArxiv(candidate) && (!hasDirectDesignSystemSignal || containsAny(content, falsePositiveDomainSignals))) {
     return "Rejected generic arXiv MCP/agent paper without explicit UI, Design System, component, Figma, Storybook, token, frontend, accessibility, or Design QA evidence.";
   }
 
-  if (isGenericDocumentationPage(candidate) && !containsAny(candidateContent(candidate), documentationSpecificSignals)) {
+  if (isFigmaSource(candidate) && !containsAny(content, figmaSpecificSignals)) {
+    return "Rejected generic Figma page without AI, MCP, design systems, components, tokens, Code Connect, Dev Mode, or design-to-code angle.";
+  }
+
+  if (isFigmaSource(candidate) && !containsAny(content, figmaAngleSignals)) {
+    return "Rejected generic Figma page without AI, MCP, component, token, Code Connect, Dev Mode, agent, or design-to-code angle.";
+  }
+
+  if (isFigmaWeave(candidate) && !hasDirectDesignSystemSignal) {
+    return "Rejected Figma Weave/media workflow content without clear Design System evidence.";
+  }
+
+  if (isGenericDocumentationPage(candidate) && !containsAny(content, documentationSpecificSignals)) {
     return "Rejected generic documentation page without AI, MCP, Design System, token, component, or design-to-code specificity.";
   }
 

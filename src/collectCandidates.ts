@@ -81,43 +81,55 @@ function countMatches(text: string, terms: string[]): number {
   return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0);
 }
 
-function directDesignSystemEvidenceFor(candidate: UnscoredCandidateResource): string {
-  const evidenceTerms = [
-    "design system",
-    "design systems",
-    "component",
-    "components",
-    "component library",
-    "component libraries",
-    "design tokens",
-    "figma",
-    "storybook",
-    "design-to-code",
-    "frontend",
-    "accessibility",
-    "design qa",
-    "ui generation",
-    "component generation",
-    "react native",
-    "react"
-  ];
-  const title = candidate.title.toLowerCase();
-  const snippet = candidate.snippet.toLowerCase();
-  const rawText = candidate.rawText.toLowerCase();
-  const matchedTerm = evidenceTerms.find(
-    (term) => title.includes(term) || snippet.includes(term) || rawText.includes(term)
-  );
+function compactText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
 
-  if (!matchedTerm) {
+function containsAll(text: string, terms: string[]): boolean {
+  return terms.every((term) => text.includes(term));
+}
+
+function evidenceSentence(candidate: UnscoredCandidateResource, label: string, matchedTerms: string[]): string {
+  const sourceText = compactText(`${candidate.title}. ${candidate.snippet || candidate.rawText}`.slice(0, 260));
+  return `${label}: ${matchedTerms.join(" + ")} evidence in title/snippet. ${sourceText}`;
+}
+
+function directDesignSystemEvidenceFor(candidate: UnscoredCandidateResource): string {
+  const combined = ` ${candidate.title} ${candidate.snippet} ${candidate.rawText} `.toLowerCase();
+  const title = candidate.title.toLowerCase();
+  const evidenceRules: Array<{ label: string; terms: string[] }> = [
+    { label: "Direct Design System anchor", terms: ["design system"] },
+    { label: "Direct Design System anchor", terms: ["design systems"] },
+    { label: "Component library anchor", terms: ["component library"] },
+    { label: "Component library anchor", terms: ["component libraries"] },
+    { label: "Design tokens anchor", terms: ["design tokens"] },
+    { label: "Storybook workflow anchor", terms: ["storybook"] },
+    { label: "Figma component anchor", terms: ["figma", "component"] },
+    { label: "Figma library anchor", terms: ["figma", "library"] },
+    { label: "Design-to-code anchor", terms: ["design-to-code"] },
+    { label: "Design-to-code anchor", terms: ["design to code"] },
+    { label: "Design System Agent anchor", terms: ["design system agent"] },
+    { label: "QA Design System Agent anchor", terms: ["qa design system agent"] },
+    { label: "MCP and Figma anchor", terms: ["mcp", "figma"] },
+    { label: "MCP and Figma anchor", terms: ["model context protocol", "figma"] },
+    { label: "MCP and Storybook anchor", terms: ["mcp", "storybook"] },
+    { label: "MCP and Storybook anchor", terms: ["model context protocol", "storybook"] },
+    { label: "AI and Design System anchor", terms: ["ai", "design system"] },
+    { label: "AI and Design System anchor", terms: ["artificial intelligence", "design system"] },
+    { label: "AI and component library anchor", terms: ["ai", "component library"] },
+    { label: "AI and design tokens anchor", terms: ["ai", "design tokens"] }
+  ];
+
+  if (title.includes("fine-grained music retrieval")) {
     return "";
   }
 
-  if (title.includes(matchedTerm)) {
-    return `Title contains "${matchedTerm}": ${candidate.title}`;
+  const match = evidenceRules.find((rule) => containsAll(combined, rule.terms));
+  if (!match) {
+    return "";
   }
 
-  const snippetSource = candidate.snippet || candidate.rawText;
-  return `Snippet contains "${matchedTerm}": ${snippetSource.slice(0, 220)}`;
+  return evidenceSentence(candidate, match.label, match.terms);
 }
 
 function calculateRecencyScore(publishedDate: string): number {

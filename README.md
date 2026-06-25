@@ -126,7 +126,8 @@ Each resource includes:
       "source": "",
       "url": "",
       "relevance_score": 5,
-      "worth_your_time_score": 5
+      "worth_your_time_score": 5,
+      "directDesignSystemEvidence": ""
     }
   ]
 }

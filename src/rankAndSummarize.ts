@@ -84,6 +84,10 @@ Reject:
 - generic coding assistant articles
 - GitHub topic pages such as /topics/...
 - generic arXiv MCP, agent, privacy, telecom, or script generation papers unless they explicitly mention UI, Design Systems, components, Figma, Storybook, design tokens, design-to-code, frontend, accessibility, or Design QA
+- arXiv papers where Figma is an unrelated acronym, including "FIGMA: Towards FIne-Grained Music retrievAl"
+- agriculture, farming, telecom, peptide, protein, scientific workflow, or music retrieval resources unless they have explicit UI or Design System evidence
+- Figma Weave/media workflow content unless it clearly connects to Design Systems
+- generic Figma marketing/docs pages unless they mention AI, MCP, design systems, components, tokens, Code Connect, Dev Mode, or design-to-code
 - generic documentation pages unless they are specifically about AI, MCP, Design Systems, tokens, components, or design-to-code
 - generic prompt engineering
 - generic productivity tools
@@ -139,7 +143,9 @@ Rules:
 - Do not invent URLs.
 - Use only candidates provided.
 - Keep exactly the original URL.
-- directDesignSystemEvidence must quote or summarize the exact candidate title/snippet evidence connecting the resource to Design Systems, Figma, Storybook, design tokens, components, design-to-code, frontend, accessibility, or Design QA.
+- directDesignSystemEvidence must be a meaningful one-sentence explanation of the exact candidate title/snippet evidence connecting the resource to a Design System anchor.
+- Do not use isolated generic words as evidence: frontend, component, design, figma, token, agent, or accessibility.
+- Strong evidence must include at least one of: design system, design systems, component library, design tokens, Storybook, Figma component, Figma library, design-to-code, design system agent, QA design system agent, MCP + Figma, MCP + Storybook, AI + design system, AI + component library, AI + design tokens.
 - Reject the resource if directDesignSystemEvidence would be empty.
 - If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
