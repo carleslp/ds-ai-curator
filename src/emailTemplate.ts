@@ -6,8 +6,11 @@ export type Resource = {
   published_date?: string;
   date?: string;
   summary: string;
+  design_system_angle?: string;
+  why_it_matters_to_our_team?: string;
   is_real_source?: boolean;
   relevance_score?: number;
+  worth_your_time_score?: number;
 };
 
 export type Digest = {
@@ -60,6 +63,14 @@ function renderResourceCard(resource: Resource): string {
       <div style="font-size:13px;color:#4b5563;line-height:1.65;margin-bottom:10px;">
         ${escapeHtml(resource.summary)}
       </div>
+
+      ${
+        resource.why_it_matters_to_our_team
+          ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;">
+        <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(resource.why_it_matters_to_our_team)}
+      </div>`
+          : ""
+      }
 
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>

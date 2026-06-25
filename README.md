@@ -2,7 +2,7 @@
 
 Generate a curated newsletter about AI applied to Design Systems.
 
-The curator does not use the LLM as a web search engine. It first collects candidate resources from predefined sources, filters them with Design System keyword rules, then uses an LLM only to rank and summarize the collected candidates. If no LLM key is configured, it returns a candidate-based fallback instead of invented resources.
+The curator does not use the LLM as a web search engine. It first collects candidate resources from predefined tiered sources, filters them with Design System keyword rules, scores them editorially, then uses an LLM only to rank and summarize the collected candidates. If no LLM key is configured, it returns a candidate-based fallback instead of invented resources.
 
 ## Setup
 
@@ -70,6 +70,10 @@ Each resource includes:
 - `type`
 - `published_date`
 - `summary`
+- `design_system_angle`
+- `why_it_matters_to_our_team`
+- `relevance_score`
+- `worth_your_time_score`
 - `is_real_source`
 
 ## Debug Contract
@@ -90,7 +94,8 @@ Each resource includes:
       "title": "",
       "source": "",
       "url": "",
-      "published_date": ""
+      "published_date": "",
+      "sourceScore": 5
     }
   ],
   "selectedPreview": [
@@ -98,7 +103,8 @@ Each resource includes:
       "title": "",
       "source": "",
       "url": "",
-      "relevance_score": 5
+      "relevance_score": 5,
+      "worth_your_time_score": 5
     }
   ]
 }
@@ -120,4 +126,5 @@ The HTML uses inline styles and table-based layout for Gmail compatibility, incl
 - date
 - trend summary bar
 - up to 5 resource cards
+- practical `Why it matters` notes when available
 - footer text: `Curated by DS × AI Curator`

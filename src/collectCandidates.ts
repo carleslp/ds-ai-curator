@@ -4,10 +4,28 @@ export type CandidateResource = {
   title: string;
   url: string;
   source: string;
-  published_date?: string;
+  published_date: string;
   snippet: string;
-  rawText?: string;
+  rawText: string;
+  sourceTier: 1 | 2 | 3;
+  sourceScore: number;
+  relevanceScore: number;
+  recencyScore: number;
+  technicalDepthScore: number;
+  practicalityScore: number;
+  noveltyScore: number;
+  worthYourTimeScore: number;
 };
+
+type UnscoredCandidateResource = Omit<
+  CandidateResource,
+  | "relevanceScore"
+  | "recencyScore"
+  | "technicalDepthScore"
+  | "practicalityScore"
+  | "noveltyScore"
+  | "worthYourTimeScore"
+>;
 
 const maxCandidates = 30;
 const requestTimeoutMs = 8000;
@@ -35,6 +53,122 @@ function decodeEntities(value: string): string {
 
 function normalizeTitle(value: string): string {
   return decodeEntities(stripTags(value)).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function clampScore(value: number): number {
+  return Math.max(1, Math.min(5, Math.round(value)));
+}
+
+function textForScoring(candidate: Pick<CandidateResource, "title" | "source" | "snippet" | "rawText">): string {
+  return ` ${candidate.title} ${candidate.source} ${candidate.snippet} ${candidate.rawText} `.toLowerCase();
+}
+
+function countMatches(text: string, terms: string[]): number {
+  return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0);
+}
+
+function calculateRecencyScore(publishedDate: string): number {
+  if (!publishedDate) {
+    return 3;
+  }
+
+  const published = Date.parse(publishedDate);
+  if (Number.isNaN(published)) {
+    return 3;
+  }
+
+  const daysOld = (Date.now() - published) / (1000 * 60 * 60 * 24);
+  if (daysOld <= 30) return 5;
+  if (daysOld <= 90) return 4;
+  if (daysOld <= 365) return 3;
+  if (daysOld <= 730) return 2;
+  return 1;
+}
+
+function scoreCandidate(candidate: UnscoredCandidateResource): CandidateResource {
+  const text = textForScoring(candidate);
+  const directDsSignals = [
+    "design system",
+    "design systems",
+    "component library",
+    "design tokens",
+    "storybook",
+    "figma",
+    "design-to-code",
+    "accessibility",
+    "governance",
+    "design qa",
+    "visual regression",
+    "model context protocol",
+    " mcp "
+  ];
+  const actionSignals = [
+    "release",
+    "changelog",
+    "documentation",
+    "docs",
+    "guide",
+    "workflow",
+    "integration",
+    "testing",
+    "qa",
+    "automation",
+    "migration",
+    "api",
+    "tokens",
+    "agent"
+  ];
+  const technicalSignals = [
+    "api",
+    "github",
+    "storybook",
+    "react",
+    "react native",
+    "code",
+    "component",
+    "tokens",
+    "mcp",
+    "schema",
+    "metadata",
+    "testing",
+    "architecture"
+  ];
+  const noveltySignals = [
+    "new",
+    "introducing",
+    "launch",
+    "release",
+    "beta",
+    "mcp",
+    "agent",
+    "ai",
+    "automation",
+    "generation",
+    "design-to-code"
+  ];
+
+  const relevanceScore = clampScore(2 + Math.min(3, countMatches(text, directDsSignals)));
+  const technicalDepthScore = clampScore(2 + Math.min(3, countMatches(text, technicalSignals)));
+  const practicalityScore = clampScore(2 + Math.min(3, countMatches(text, actionSignals)));
+  const noveltyScore = clampScore(2 + Math.min(3, countMatches(text, noveltySignals)));
+  const recencyScore = calculateRecencyScore(candidate.published_date);
+  const worthYourTimeScore = clampScore(
+    relevanceScore * 0.35 +
+      practicalityScore * 0.25 +
+      candidate.sourceScore * 0.2 +
+      technicalDepthScore * 0.1 +
+      noveltyScore * 0.1
+  );
+
+  return {
+    ...candidate,
+    relevanceScore,
+    recencyScore,
+    technicalDepthScore,
+    practicalityScore,
+    noveltyScore,
+    worthYourTimeScore
+  };
 }
 
 function absoluteUrl(href: string, baseUrl: string): string | undefined {
@@ -72,14 +206,14 @@ function textBetween(xml: string, tag: string): string | undefined {
   return match ? decodeEntities(stripTags(match[1])) : undefined;
 }
 
-function parseFeedItems(xml: string, source: CuratedSource): CandidateResource[] {
+function parseFeedItems(xml: string, source: CuratedSource): UnscoredCandidateResource[] {
   const blocks = [
     ...xml.matchAll(/<item\b[\s\S]*?<\/item>/gi),
     ...xml.matchAll(/<entry\b[\s\S]*?<\/entry>/gi)
   ].map((match) => match[0]);
 
   return blocks
-    .map((block): CandidateResource | undefined => {
+    .map((block): UnscoredCandidateResource | undefined => {
       const title = textBetween(block, "title");
       const directLink = textBetween(block, "link");
       const hrefLink = block.match(/<link[^>]+href=["']([^"']+)["']/i)?.[1];
@@ -101,20 +235,22 @@ function parseFeedItems(xml: string, source: CuratedSource): CandidateResource[]
         title,
         url,
         source: source.name,
-        published_date: publishedDate,
+        published_date: publishedDate ?? "",
         snippet,
-        rawText: snippet
+        rawText: snippet,
+        sourceTier: source.tier,
+        sourceScore: source.sourceScore
       };
     })
-    .filter((candidate): candidate is CandidateResource => Boolean(candidate));
+    .filter((candidate): candidate is UnscoredCandidateResource => Boolean(candidate));
 }
 
-function parseHtmlItems(html: string, source: CuratedSource): CandidateResource[] {
+function parseHtmlItems(html: string, source: CuratedSource): UnscoredCandidateResource[] {
   const pageTitle = textBetween(html, "title") ?? source.name;
   const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
 
   return links
-    .map((match): CandidateResource | undefined => {
+    .map((match): UnscoredCandidateResource | undefined => {
       const url = absoluteUrl(match[1], source.url);
       const title = decodeEntities(stripTags(match[2]));
 
@@ -126,14 +262,17 @@ function parseHtmlItems(html: string, source: CuratedSource): CandidateResource[
         title,
         url,
         source: source.name,
+        published_date: "",
         snippet: pageTitle,
-        rawText: `${title} ${pageTitle}`
+        rawText: `${title} ${pageTitle}`,
+        sourceTier: source.tier,
+        sourceScore: source.sourceScore
       };
     })
-    .filter((candidate): candidate is CandidateResource => Boolean(candidate));
+    .filter((candidate): candidate is UnscoredCandidateResource => Boolean(candidate));
 }
 
-function parseSourceItems(body: string, source: CuratedSource): CandidateResource[] {
+function parseSourceItems(body: string, source: CuratedSource): UnscoredCandidateResource[] {
   if (source.kind === "rss" || source.kind === "arxiv") {
     return parseFeedItems(body, source);
   }
@@ -141,13 +280,13 @@ function parseSourceItems(body: string, source: CuratedSource): CandidateResourc
   return parseHtmlItems(body, source);
 }
 
-function isProbablyEnglish(candidate: CandidateResource): boolean {
+function isProbablyEnglish(candidate: Pick<CandidateResource, "title" | "snippet">): boolean {
   const text = `${candidate.title} ${candidate.snippet}`;
   const asciiChars = text.replace(/[^\x00-\x7F]/g, "").length;
   return text.length === 0 || asciiChars / text.length > 0.85;
 }
 
-function isRecentEnough(candidate: CandidateResource): boolean {
+function isRecentEnough(candidate: Pick<CandidateResource, "published_date">): boolean {
   if (!candidate.published_date) {
     return true;
   }
@@ -161,10 +300,10 @@ function isRecentEnough(candidate: CandidateResource): boolean {
   return daysOld <= 730;
 }
 
-function dedupeCandidates(candidates: CandidateResource[]): CandidateResource[] {
+function dedupeCandidates<T extends Pick<CandidateResource, "url" | "title">>(candidates: T[]): T[] {
   const seenUrls = new Set<string>();
   const seenTitles = new Set<string>();
-  const deduped: CandidateResource[] = [];
+  const deduped: T[] = [];
 
   for (const candidate of candidates) {
     const urlKey = candidate.url.replace(/[#?].*$/, "").replace(/\/$/, "");
@@ -203,5 +342,20 @@ export async function collectCandidates(): Promise<CandidateResource[]> {
   return dedupeCandidates(candidates)
     .filter(isProbablyEnglish)
     .filter(isRecentEnough)
+    .map(scoreCandidate)
+    .sort((a, b) => {
+      const scoreDifference =
+        b.worthYourTimeScore +
+        b.relevanceScore +
+        b.sourceScore +
+        b.recencyScore -
+        (a.worthYourTimeScore + a.relevanceScore + a.sourceScore + a.recencyScore);
+
+      if (scoreDifference !== 0) {
+        return scoreDifference;
+      }
+
+      return a.sourceTier - b.sourceTier;
+    })
     .slice(0, maxCandidates);
 }

@@ -14,7 +14,8 @@ const RankedResourceSchema = z.object({
   summary: z.string().min(1),
   design_system_angle: z.string().min(1),
   why_it_matters_to_our_team: z.string().min(1),
-  relevance_score: z.number().min(1).max(5)
+  relevance_score: z.number().min(1).max(5),
+  worth_your_time_score: z.number().min(1).max(5)
 });
 
 const RankedDigestSchema = z.object({
@@ -52,9 +53,11 @@ Team context:
 - The development team has an internal QA Design System Agent
 - The team maintains components, tokens, documentation, governance, accessibility, and Figma-to-Storybook alignment
 
-Select exactly 5 resources from the provided candidates.
+Select the best resources from the provided candidates.
 
 Only select resources that directly help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow.
+
+The digest should feel like a "Worth Your Time" briefing for a senior enterprise Design System Designer, not a generic AI/UX content roundup.
 
 Prioritize:
 - AI-assisted Design System workflows
@@ -70,6 +73,9 @@ Prioritize:
 - Documentation generation
 - Governance automation
 - RAG over Design System docs
+- Model Context Protocol and MCP servers
+- AI-ready documentation and machine-readable Design Systems
+- AI-assisted visual regression, UI testing, and design reviews
 
 Reject:
 - generic AI news
@@ -79,6 +85,35 @@ Reject:
 - generic productivity tools
 - marketing fluff
 - SEO listicles
+- funding announcements
+- career advice
+- freelancer-only content
+
+For every candidate ask:
+1. Would this help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow?
+2. Is this worth one of only five reading slots today?
+
+Use this internal final ranking formula:
+finalScore =
+worthYourTimeScore * 0.35 +
+relevanceScore * 0.25 +
+practicalityScore * 0.15 +
+sourceScore * 0.10 +
+technicalDepthScore * 0.10 +
+noveltyScore * 0.05
+
+Use recencyScore as a tiebreaker.
+
+Do not select a resource with:
+- relevance_score < 4
+- worth_your_time_score < 4
+- sourceScore < 3 unless it is exceptionally relevant
+
+Editorial diversity:
+- Maximum 2 resources from the same publisher.
+- Prefer at least 4 different publishers.
+- Avoid five resources about exactly the same topic.
+- Prefer a mix of official docs/product updates, engineering blogs, research, tools, and workflow articles when quality allows.
 
 For each selected resource return:
 {
@@ -90,7 +125,8 @@ For each selected resource return:
   "summary": "",
   "design_system_angle": "",
   "why_it_matters_to_our_team": "",
-  "relevance_score": 1-5
+  "relevance_score": 1-5,
+  "worth_your_time_score": 1-5
 }
 
 Rules:
@@ -98,7 +134,7 @@ Rules:
 - Do not invent URLs.
 - Use only candidates provided.
 - Keep exactly the original URL.
-- If fewer than 5 candidates are good enough, return fewer and set needsMoreSources: true.
+- If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
 - Trend summary must be max 120 words and focus only on AI impact on Design Systems, Figma, Storybook, tokens, documentation, governance, QA, or agents.
 
@@ -136,7 +172,8 @@ function jsonSchema() {
             summary: { type: "string" },
             design_system_angle: { type: "string" },
             why_it_matters_to_our_team: { type: "string" },
-            relevance_score: { type: "number", minimum: 1, maximum: 5 }
+            relevance_score: { type: "number", minimum: 1, maximum: 5 },
+            worth_your_time_score: { type: "number", minimum: 1, maximum: 5 }
           },
           required: [
             "title",
@@ -147,7 +184,8 @@ function jsonSchema() {
             "summary",
             "design_system_angle",
             "why_it_matters_to_our_team",
-            "relevance_score"
+            "relevance_score",
+            "worth_your_time_score"
           ],
           additionalProperties: false
         }
@@ -169,8 +207,11 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       type: resource.type,
       published_date: resource.published_date,
       summary: resource.summary,
+      design_system_angle: resource.design_system_angle,
+      why_it_matters_to_our_team: resource.why_it_matters_to_our_team,
       is_real_source: true,
-      relevance_score: resource.relevance_score
+      relevance_score: resource.relevance_score,
+      worth_your_time_score: resource.worth_your_time_score
     }))
   };
 }
@@ -178,9 +219,18 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
 function assertSelectedFromCandidates(resources: RankedDigest["resources"], candidates: CandidateResource[]) {
   const urls = new Set(candidates.map((candidate) => candidate.url));
   const invalid = resources.filter((resource) => !urls.has(resource.url));
+  const lowQuality = resources.filter(
+    (resource) => resource.relevance_score < 4 || resource.worth_your_time_score < 4
+  );
 
   if (invalid.length > 0) {
     throw new Error(`LLM selected URLs not present in candidates: ${invalid.map((item) => item.url).join(", ")}`);
+  }
+
+  if (lowQuality.length > 0) {
+    throw new Error(
+      `LLM selected resources below editorial threshold: ${lowQuality.map((item) => item.title).join(", ")}`
+    );
   }
 }
 

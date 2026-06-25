@@ -1,6 +1,6 @@
 import { collectCandidates, type CandidateResource } from "./collectCandidates.js";
 import type { Digest, Resource } from "./emailTemplate.js";
-import { filterCandidates } from "./filterCandidates.js";
+import { editorialFinalScore, filterCandidates } from "./filterCandidates.js";
 import {
   rankAndSummarizeWithGemini,
   rankAndSummarizeWithOpenAI,
@@ -14,6 +14,7 @@ type CandidatePreview = {
   url: string;
   source: string;
   published_date: string;
+  sourceScore: number;
 };
 
 type SelectedPreview = {
@@ -21,6 +22,7 @@ type SelectedPreview = {
   url: string;
   source: string;
   relevance_score: number;
+  worth_your_time_score: number;
 };
 
 type DailyDigestResult = {
@@ -37,6 +39,8 @@ type DailyDigestResult = {
 };
 
 let cachedDigest: Digest | undefined;
+const recentSelectedUrls = new Map<string, number>();
+const historyWindowMs = 30 * 24 * 60 * 60 * 1000;
 
 function todayIsoDate(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -59,21 +63,89 @@ function createEmergencyFallbackDigest(): Digest {
   };
 }
 
+function normalizeUrl(url: string): string {
+  return url.replace(/[#?].*$/, "").replace(/\/$/, "");
+}
+
+function pruneRecentHistory(): void {
+  const cutoff = Date.now() - historyWindowMs;
+  for (const [url, timestamp] of recentSelectedUrls.entries()) {
+    if (timestamp < cutoff) {
+      recentSelectedUrls.delete(url);
+    }
+  }
+}
+
+function filterRecentCandidates(candidates: CandidateResource[]): CandidateResource[] {
+  pruneRecentHistory();
+  const freshCandidates = candidates.filter((candidate) => !recentSelectedUrls.has(normalizeUrl(candidate.url)));
+  return freshCandidates.length >= 3 ? freshCandidates : candidates;
+}
+
+function rememberDigest(digest: Digest): void {
+  pruneRecentHistory();
+  const now = Date.now();
+  for (const resource of digest.resources) {
+    recentSelectedUrls.set(normalizeUrl(resource.url), now);
+  }
+}
+
 function candidateToResource(candidate: CandidateResource): Resource {
   return {
     title: candidate.title,
     url: candidate.url,
     source: candidate.source,
     type: "Article",
-    published_date: candidate.published_date ?? "Recent",
+    published_date: candidate.published_date,
     summary: candidate.snippet || "Candidate collected from a curated source for Design System review.",
+    design_system_angle:
+      "Selected from curated Design System, UI engineering, tooling, or research sources and ranked against the Figma-to-Storybook workflow.",
+    why_it_matters_to_our_team:
+      "Worth reviewing because it connects to components, tokens, documentation, QA, governance, or AI-assisted delivery for an enterprise Design System team.",
     is_real_source: true,
-    relevance_score: 3
+    relevance_score: candidate.relevanceScore,
+    worth_your_time_score: candidate.worthYourTimeScore
   };
 }
 
 function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): Digest {
-  const resources = filteredCandidates.slice(0, 5).map(candidateToResource);
+  const rankedCandidates = [...filteredCandidates].sort((a, b) => {
+      const scoreDifference = editorialFinalScore(b) - editorialFinalScore(a);
+      if (scoreDifference !== 0) return scoreDifference;
+      return b.recencyScore - a.recencyScore;
+    });
+  const selectedCandidates: CandidateResource[] = [];
+  const sourceCounts = new Map<string, number>();
+
+  for (const candidate of rankedCandidates) {
+    const sourceKey = candidate.source.toLowerCase();
+    const sourceCount = sourceCounts.get(sourceKey) ?? 0;
+    if (sourceCount >= 2) {
+      continue;
+    }
+
+    selectedCandidates.push(candidate);
+    sourceCounts.set(sourceKey, sourceCount + 1);
+
+    if (selectedCandidates.length === 5) {
+      break;
+    }
+  }
+
+  if (selectedCandidates.length < 5) {
+    for (const candidate of rankedCandidates) {
+      if (selectedCandidates.includes(candidate)) {
+        continue;
+      }
+
+      selectedCandidates.push(candidate);
+      if (selectedCandidates.length === 5) {
+        break;
+      }
+    }
+  }
+
+  const resources = selectedCandidates.map(candidateToResource);
 
   return {
     date: todayIsoDate(),
@@ -111,7 +183,8 @@ function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] 
     title: candidate.title,
     url: candidate.url,
     source: candidate.source,
-    published_date: candidate.published_date ?? ""
+    published_date: candidate.published_date,
+    sourceScore: candidate.sourceScore
   }));
 }
 
@@ -120,7 +193,8 @@ function previewResources(resources: Resource[]): SelectedPreview[] {
     title: resource.title,
     url: resource.url,
     source: resource.source,
-    relevance_score: resource.relevance_score ?? 0
+    relevance_score: resource.relevance_score ?? 0,
+    worth_your_time_score: resource.worth_your_time_score ?? 0
   }));
 }
 
@@ -163,6 +237,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
     filteredCandidates = filterCandidates(candidates);
     console.log(`Step 3: Candidate pre-filter completed (${filteredCandidates.length} candidates).`);
+    filteredCandidates = filterRecentCandidates(filteredCandidates);
+    console.log(`Step 3b: Recent-history filter completed (${filteredCandidates.length} candidates).`);
 
     if (filteredCandidates.length === 0) {
       throw new Error("No relevant candidates after pre-filtering.");
@@ -174,6 +250,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       console.log(`Step 5: LLM ranking/summarization completed (${ranked.digest.resources.length} selected).`);
 
       cachedDigest = ranked.digest;
+      rememberDigest(ranked.digest);
       console.log("Step 6: Digest cached.");
 
       return {
@@ -195,6 +272,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
       if (fallbackDigest.resources.length > 0) {
+        rememberDigest(fallbackDigest);
         return {
           digest: fallbackDigest,
           mode: "candidateFallback",

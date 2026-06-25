@@ -2,79 +2,97 @@ export type CuratedSource = {
   name: string;
   url: string;
   kind: "rss" | "html" | "arxiv";
+  tier: 1 | 2 | 3;
+  sourceScore: 1 | 2 | 3 | 4 | 5;
 };
 
+const tier1 = 1;
+const tier2 = 2;
+const tier3 = 3;
+
 export const curatedSources: CuratedSource[] = [
-  { name: "Figma Blog", url: "https://www.figma.com/blog/feed/", kind: "rss" },
-  { name: "Figma AI", url: "https://www.figma.com/ai/", kind: "html" },
-  { name: "Figma Make", url: "https://www.figma.com/make/", kind: "html" },
-  { name: "Figma Releases", url: "https://www.figma.com/release-notes/", kind: "html" },
-  { name: "Storybook Blog", url: "https://storybook.js.org/blog/rss.xml", kind: "rss" },
-  { name: "Storybook Releases", url: "https://github.com/storybookjs/storybook/releases.atom", kind: "rss" },
-  { name: "Storybook Discussions", url: "https://github.com/storybookjs/storybook/discussions", kind: "html" },
-  { name: "Zeroheight Blog", url: "https://zeroheight.com/blog/rss.xml", kind: "rss" },
-  { name: "Tokens Studio Blog", url: "https://tokens.studio/blog/rss.xml", kind: "rss" },
-  { name: "Style Dictionary Releases", url: "https://github.com/amzn/style-dictionary/releases.atom", kind: "rss" },
-  { name: "Style Dictionary", url: "https://styledictionary.com/", kind: "html" },
-  { name: "W3C Design Tokens Community Group", url: "https://www.w3.org/community/design-tokens/", kind: "html" },
-  {
-    name: "arXiv design systems AI",
-    url: "https://export.arxiv.org/api/query?search_query=all:%22design%20systems%20AI%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending",
-    kind: "arxiv"
-  },
-  {
-    name: "arXiv Figma design to code",
-    url: "https://export.arxiv.org/api/query?search_query=all:%22Figma%20design%20to%20code%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending",
-    kind: "arxiv"
-  },
-  {
-    name: "arXiv UI component generation",
-    url: "https://export.arxiv.org/api/query?search_query=all:%22UI%20component%20generation%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending",
-    kind: "arxiv"
-  },
-  {
-    name: "arXiv design tokens",
-    url: "https://export.arxiv.org/api/query?search_query=all:%22design%20tokens%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending",
-    kind: "arxiv"
-  },
-  {
-    name: "arXiv LLM UI generation",
-    url: "https://export.arxiv.org/api/query?search_query=all:%22LLM%20UI%20generation%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending",
-    kind: "arxiv"
-  },
-  {
-    name: "GitHub Storybook search",
-    url: "https://github.com/search?q=storybook+MCP+design+systems&type=repositories&s=updated&o=desc",
-    kind: "html"
-  },
-  {
-    name: "GitHub design tokens search",
-    url: "https://github.com/search?q=design+tokens&type=repositories&s=updated&o=desc",
-    kind: "html"
-  },
-  {
-    name: "GitHub Figma MCP search",
-    url: "https://github.com/search?q=figma+mcp&type=repositories&s=updated&o=desc",
-    kind: "html"
-  },
-  {
-    name: "GitHub design system agent search",
-    url: "https://github.com/search?q=%22design+system%22+agent&type=repositories&s=updated&o=desc",
-    kind: "html"
-  },
-  {
-    name: "Smashing Magazine Design Systems",
-    url: "https://www.smashingmagazine.com/category/design-systems/",
-    kind: "html"
-  },
-  {
-    name: "UX Collective design systems AI",
-    url: "https://uxdesign.cc/tagged/design-systems",
-    kind: "html"
-  },
-  {
-    name: "Nielsen Norman Group AI UX",
-    url: "https://www.nngroup.com/topic/artificial-intelligence/",
-    kind: "html"
-  }
+  { name: "Figma Blog", url: "https://www.figma.com/blog/feed/", kind: "rss", tier: tier1, sourceScore: 5 },
+  { name: "Figma AI", url: "https://www.figma.com/ai/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Figma Make", url: "https://www.figma.com/make/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Figma MCP Documentation", url: "https://help.figma.com/hc/en-us/search?query=MCP", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Figma Releases", url: "https://www.figma.com/release-notes/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Storybook Blog", url: "https://storybook.js.org/blog/rss.xml", kind: "rss", tier: tier1, sourceScore: 5 },
+  { name: "Storybook Documentation", url: "https://storybook.js.org/docs", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Storybook Releases", url: "https://github.com/storybookjs/storybook/releases.atom", kind: "rss", tier: tier1, sourceScore: 5 },
+  { name: "Storybook Discussions", url: "https://github.com/storybookjs/storybook/discussions", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "W3C Design Tokens Community Group", url: "https://www.w3.org/community/design-tokens/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Tokens Studio Blog", url: "https://tokens.studio/blog/rss.xml", kind: "rss", tier: tier1, sourceScore: 5 },
+  { name: "Style Dictionary Releases", url: "https://github.com/amzn/style-dictionary/releases.atom", kind: "rss", tier: tier1, sourceScore: 5 },
+  { name: "Style Dictionary", url: "https://styledictionary.com/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Adobe Spectrum", url: "https://spectrum.adobe.com/blog", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Atlassian Design System", url: "https://atlassian.design/whats-new", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Microsoft Fluent UI", url: "https://react.fluentui.dev/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Shopify Polaris", url: "https://polaris.shopify.com/updates", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Design Engineering", url: "https://github.blog/category/engineering/", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "Material Design", url: "https://m3.material.io/blog", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "IBM Carbon Design System", url: "https://carbondesignsystem.com/whats-happening", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "arXiv design systems AI", url: "https://export.arxiv.org/api/query?search_query=all:%22design%20systems%20AI%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv design tokens", url: "https://export.arxiv.org/api/query?search_query=all:%22design%20tokens%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv design to code", url: "https://export.arxiv.org/api/query?search_query=all:%22design%20to%20code%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv Figma", url: "https://export.arxiv.org/api/query?search_query=all:Figma&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv Storybook", url: "https://export.arxiv.org/api/query?search_query=all:Storybook&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv component generation", url: "https://export.arxiv.org/api/query?search_query=all:%22component%20generation%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv UI generation", url: "https://export.arxiv.org/api/query?search_query=all:%22UI%20generation%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv LLM UI", url: "https://export.arxiv.org/api/query?search_query=all:%22LLM%20UI%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv AI agents", url: "https://export.arxiv.org/api/query?search_query=all:%22AI%20agents%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv MCP", url: "https://export.arxiv.org/api/query?search_query=all:%22Model%20Context%20Protocol%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv design system agent", url: "https://export.arxiv.org/api/query?search_query=all:%22design%20system%20agent%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "arXiv design QA AI", url: "https://export.arxiv.org/api/query?search_query=all:%22design%20QA%20AI%22&start=0&max_results=10&sortBy=submittedDate&sortOrder=descending", kind: "arxiv", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Storybook Search", url: "https://github.com/search?q=storybook+MCP+design+systems&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Style Dictionary Search", url: "https://github.com/search?q=style+dictionary+design+tokens&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Tokens Studio Search", url: "https://github.com/search?q=tokens+studio&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Figma MCP Search", url: "https://github.com/search?q=figma+mcp&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Storybook MCP Search", url: "https://github.com/search?q=storybook+mcp&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Design Tokens Search", url: "https://github.com/search?q=design+tokens&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Design System Agent Search", url: "https://github.com/search?q=%22design+system%22+agent&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Design QA Agent Search", url: "https://github.com/search?q=%22design+QA%22+agent&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Design-to-Code Search", url: "https://github.com/search?q=design-to-code+figma&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+  { name: "GitHub Component Documentation Search", url: "https://github.com/search?q=component+documentation+storybook&type=repositories&s=updated&o=desc", kind: "html", tier: tier1, sourceScore: 5 },
+
+  { name: "The UX Collective", url: "https://uxdesign.cc/tagged/design-systems", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Smashing Magazine Design Systems", url: "https://www.smashingmagazine.com/category/design-systems/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Smashing Newsletter", url: "https://www.smashingmagazine.com/the-smashing-newsletter/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "DesignOps Newsletter", url: "https://designops.substack.com/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Sidebar", url: "https://sidebar.io/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Figmalion", url: "https://figmalion.com/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Femke.design", url: "https://www.femke.design/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "TLDR Design", url: "https://tldr.tech/design", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Lenny's Newsletter", url: "https://www.lennysnewsletter.com/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Nielsen Norman Group AI UX", url: "https://www.nngroup.com/topic/artificial-intelligence/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "CSS-Tricks", url: "https://css-tricks.com/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Chrome Developers", url: "https://developer.chrome.com/blog", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "React Blog", url: "https://react.dev/blog", kind: "html", tier: tier2, sourceScore: 4 },
+
+  { name: "Medium Design Systems", url: "https://medium.com/tag/design-systems", kind: "html", tier: tier3, sourceScore: 3 },
+  { name: "Medium Figma", url: "https://medium.com/tag/figma", kind: "html", tier: tier3, sourceScore: 3 },
+  { name: "Medium Design Tokens", url: "https://medium.com/tag/design-tokens", kind: "html", tier: tier3, sourceScore: 3 },
+  { name: "TOOOLS.design", url: "https://www.toools.design/", kind: "html", tier: tier3, sourceScore: 3 },
+  { name: "Product Disrupt", url: "https://productdisrupt.com/", kind: "html", tier: tier3, sourceScore: 3 },
+  { name: "Dev.to Design Systems", url: "https://dev.to/t/designsystems", kind: "html", tier: tier3, sourceScore: 2 },
+  { name: "Hashnode Design Systems", url: "https://hashnode.com/n/designsystems", kind: "html", tier: tier3, sourceScore: 2 },
+
+  { name: "OpenAI", url: "https://openai.com/news/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Anthropic", url: "https://www.anthropic.com/news", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Google DeepMind", url: "https://deepmind.google/discover/blog/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Vercel", url: "https://vercel.com/blog", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "GitHub Blog", url: "https://github.blog/changelog/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Microsoft Developer Blog", url: "https://devblogs.microsoft.com/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Adobe Blog", url: "https://blog.adobe.com/en/topics/experience-design", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Cursor", url: "https://cursor.com/changelog", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Windsurf", url: "https://windsurf.com/changelog", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "GitHub Copilot", url: "https://github.blog/changelog/label/copilot/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Claude Code", url: "https://docs.anthropic.com/en/docs/claude-code/overview", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "OpenAI Codex", url: "https://developers.openai.com/codex/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Vercel AI SDK", url: "https://ai-sdk.dev/docs", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "LangGraph", url: "https://blog.langchain.com/tag/langgraph/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "CrewAI", url: "https://www.crewai.com/blog", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "AutoGen", url: "https://microsoft.github.io/autogen/stable/blog/", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "OpenHands", url: "https://github.com/All-Hands-AI/OpenHands/releases", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Browser Use", url: "https://github.com/browser-use/browser-use/releases", kind: "html", tier: tier2, sourceScore: 4 },
+  { name: "Playwright MCP", url: "https://github.com/microsoft/playwright-mcp/releases", kind: "html", tier: tier2, sourceScore: 4 }
 ];
