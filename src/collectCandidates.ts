@@ -15,6 +15,7 @@ export type CandidateResource = {
   practicalityScore: number;
   noveltyScore: number;
   worthYourTimeScore: number;
+  directDesignSystemEvidence: string;
 };
 
 export type SourceResult = {
@@ -37,6 +38,7 @@ type UnscoredCandidateResource = Omit<
   | "practicalityScore"
   | "noveltyScore"
   | "worthYourTimeScore"
+  | "directDesignSystemEvidence"
 >;
 
 const maxCandidates = 30;
@@ -77,6 +79,45 @@ function textForScoring(candidate: Pick<CandidateResource, "title" | "source" | 
 
 function countMatches(text: string, terms: string[]): number {
   return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0);
+}
+
+function directDesignSystemEvidenceFor(candidate: UnscoredCandidateResource): string {
+  const evidenceTerms = [
+    "design system",
+    "design systems",
+    "component",
+    "components",
+    "component library",
+    "component libraries",
+    "design tokens",
+    "figma",
+    "storybook",
+    "design-to-code",
+    "frontend",
+    "accessibility",
+    "design qa",
+    "ui generation",
+    "component generation",
+    "react native",
+    "react"
+  ];
+  const title = candidate.title.toLowerCase();
+  const snippet = candidate.snippet.toLowerCase();
+  const rawText = candidate.rawText.toLowerCase();
+  const matchedTerm = evidenceTerms.find(
+    (term) => title.includes(term) || snippet.includes(term) || rawText.includes(term)
+  );
+
+  if (!matchedTerm) {
+    return "";
+  }
+
+  if (title.includes(matchedTerm)) {
+    return `Title contains "${matchedTerm}": ${candidate.title}`;
+  }
+
+  const snippetSource = candidate.snippet || candidate.rawText;
+  return `Snippet contains "${matchedTerm}": ${snippetSource.slice(0, 220)}`;
 }
 
 function calculateRecencyScore(publishedDate: string): number {
@@ -164,6 +205,7 @@ function scoreCandidate(candidate: UnscoredCandidateResource): CandidateResource
   const practicalityScore = clampScore(2 + Math.min(3, countMatches(text, actionSignals)));
   const noveltyScore = clampScore(2 + Math.min(3, countMatches(text, noveltySignals)));
   const recencyScore = calculateRecencyScore(candidate.published_date);
+  const directDesignSystemEvidence = directDesignSystemEvidenceFor(candidate);
   const worthYourTimeScore = clampScore(
     relevanceScore * 0.35 +
       practicalityScore * 0.25 +
@@ -179,7 +221,8 @@ function scoreCandidate(candidate: UnscoredCandidateResource): CandidateResource
     technicalDepthScore,
     practicalityScore,
     noveltyScore,
-    worthYourTimeScore
+    worthYourTimeScore,
+    directDesignSystemEvidence
   };
 }
 

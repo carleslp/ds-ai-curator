@@ -14,6 +14,7 @@ const RankedResourceSchema = z.object({
   summary: z.string().min(1),
   design_system_angle: z.string().min(1),
   why_it_matters_to_our_team: z.string().min(1),
+  directDesignSystemEvidence: z.string().min(1),
   relevance_score: z.number().min(1).max(5),
   worth_your_time_score: z.number().min(1).max(5)
 });
@@ -81,6 +82,9 @@ Reject:
 - generic AI news
 - generic UX/UI articles
 - generic coding assistant articles
+- GitHub topic pages such as /topics/...
+- generic arXiv MCP, agent, privacy, telecom, or script generation papers unless they explicitly mention UI, Design Systems, components, Figma, Storybook, design tokens, design-to-code, frontend, accessibility, or Design QA
+- generic documentation pages unless they are specifically about AI, MCP, Design Systems, tokens, components, or design-to-code
 - generic prompt engineering
 - generic productivity tools
 - marketing fluff
@@ -125,6 +129,7 @@ For each selected resource return:
   "summary": "",
   "design_system_angle": "",
   "why_it_matters_to_our_team": "",
+  "directDesignSystemEvidence": "",
   "relevance_score": 1-5,
   "worth_your_time_score": 1-5
 }
@@ -134,6 +139,8 @@ Rules:
 - Do not invent URLs.
 - Use only candidates provided.
 - Keep exactly the original URL.
+- directDesignSystemEvidence must quote or summarize the exact candidate title/snippet evidence connecting the resource to Design Systems, Figma, Storybook, design tokens, components, design-to-code, frontend, accessibility, or Design QA.
+- Reject the resource if directDesignSystemEvidence would be empty.
 - If fewer than 5 candidates are worth reading, return fewer than 5 and set needsMoreSources: true.
 - Never fabricate resources.
 - Trend summary must be max 120 words and focus only on AI impact on Design Systems, Figma, Storybook, tokens, documentation, governance, QA, or agents.
@@ -172,6 +179,7 @@ function jsonSchema() {
             summary: { type: "string" },
             design_system_angle: { type: "string" },
             why_it_matters_to_our_team: { type: "string" },
+            directDesignSystemEvidence: { type: "string" },
             relevance_score: { type: "number", minimum: 1, maximum: 5 },
             worth_your_time_score: { type: "number", minimum: 1, maximum: 5 }
           },
@@ -184,6 +192,7 @@ function jsonSchema() {
             "summary",
             "design_system_angle",
             "why_it_matters_to_our_team",
+            "directDesignSystemEvidence",
             "relevance_score",
             "worth_your_time_score"
           ],
@@ -209,6 +218,7 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       summary: resource.summary,
       design_system_angle: resource.design_system_angle,
       why_it_matters_to_our_team: resource.why_it_matters_to_our_team,
+      directDesignSystemEvidence: resource.directDesignSystemEvidence,
       is_real_source: true,
       relevance_score: resource.relevance_score,
       worth_your_time_score: resource.worth_your_time_score
@@ -220,7 +230,10 @@ function assertSelectedFromCandidates(resources: RankedDigest["resources"], cand
   const urls = new Set(candidates.map((candidate) => candidate.url));
   const invalid = resources.filter((resource) => !urls.has(resource.url));
   const lowQuality = resources.filter(
-    (resource) => resource.relevance_score < 4 || resource.worth_your_time_score < 4
+    (resource) =>
+      resource.relevance_score < 4 ||
+      resource.worth_your_time_score < 4 ||
+      resource.directDesignSystemEvidence.trim().length === 0
   );
 
   if (invalid.length > 0) {

@@ -30,6 +30,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     selectedResourceCount: result.selectedResourceCount,
     resourceCount: result.selectedResourceCount,
     sourceResults: result.sourceResults,
+    rejectedCandidates: result.rejectedCandidates,
     candidatesPreview: result.candidatesPreview,
     selectedPreview: result.selectedPreview
   });

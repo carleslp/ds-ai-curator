@@ -4,7 +4,11 @@ import {
   type SourceResult
 } from "./collectCandidates.js";
 import type { Digest, Resource } from "./emailTemplate.js";
-import { editorialFinalScore, filterCandidates } from "./filterCandidates.js";
+import {
+  editorialFinalScore,
+  filterCandidatesWithDiagnostics,
+  type RejectedCandidate
+} from "./filterCandidates.js";
 import {
   rankAndSummarizeWithGemini,
   rankAndSummarizeWithOpenAI,
@@ -19,6 +23,7 @@ type CandidatePreview = {
   source: string;
   published_date: string;
   sourceScore: number;
+  directDesignSystemEvidence: string;
 };
 
 type SelectedPreview = {
@@ -39,6 +44,7 @@ type DailyDigestResult = {
   selectedResourceCount: number;
   fallbackReason?: string;
   sourceResults: SourceResult[];
+  rejectedCandidates: RejectedCandidate[];
   candidatesPreview: CandidatePreview[];
   selectedPreview: SelectedPreview[];
 };
@@ -107,6 +113,7 @@ function candidateToResource(candidate: CandidateResource): Resource {
       "Selected from curated Design System, UI engineering, tooling, or research sources and ranked against the Figma-to-Storybook workflow.",
     why_it_matters_to_our_team:
       "Worth reviewing because it connects to components, tokens, documentation, QA, governance, or AI-assisted delivery for an enterprise Design System team.",
+    directDesignSystemEvidence: candidate.directDesignSystemEvidence,
     is_real_source: true,
     relevance_score: candidate.relevanceScore,
     worth_your_time_score: candidate.worthYourTimeScore
@@ -114,7 +121,14 @@ function candidateToResource(candidate: CandidateResource): Resource {
 }
 
 function buildCandidateFallbackDigest(filteredCandidates: CandidateResource[]): Digest {
-  const rankedCandidates = [...filteredCandidates].sort((a, b) => {
+  const rankedCandidates = [...filteredCandidates]
+    .filter(
+      (candidate) =>
+        candidate.relevanceScore >= 4 &&
+        candidate.worthYourTimeScore >= 4 &&
+        candidate.directDesignSystemEvidence.trim().length > 0
+    )
+    .sort((a, b) => {
       const scoreDifference = editorialFinalScore(b) - editorialFinalScore(a);
       if (scoreDifference !== 0) return scoreDifference;
       return b.recencyScore - a.recencyScore;
@@ -189,7 +203,8 @@ function previewCandidates(candidates: CandidateResource[]): CandidatePreview[] 
     url: candidate.url,
     source: candidate.source,
     published_date: candidate.published_date,
-    sourceScore: candidate.sourceScore
+    sourceScore: candidate.sourceScore,
+    directDesignSystemEvidence: candidate.directDesignSystemEvidence
   }));
 }
 
@@ -233,6 +248,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let filteredCandidates: CandidateResource[] = [];
   let fallbackCandidates: CandidateResource[] = [];
   let sourceResults: SourceResult[] = [];
+  let rejectedCandidates: RejectedCandidate[] = [];
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
@@ -244,20 +260,24 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     sourceResults = collectionResult.sourceResults;
     console.log(`Step 2: Candidate collection completed (${candidates.length} candidates).`);
 
-    filteredCandidates = filterCandidates(candidates);
+    const filterResult = filterCandidatesWithDiagnostics(candidates);
+    filteredCandidates = filterResult.accepted;
+    rejectedCandidates = filterResult.rejected;
     console.log(`Step 3: Candidate pre-filter completed (${filteredCandidates.length} candidates).`);
     filteredCandidates = filterRecentCandidates(filteredCandidates);
     console.log(`Step 3b: Recent-history filter completed (${filteredCandidates.length} candidates).`);
-    fallbackCandidates = filteredCandidates.length > 0 ? filteredCandidates : candidates;
+    fallbackCandidates = filteredCandidates;
 
     if (candidates.length === 0) {
       throw new Error("No candidates collected from configured sources.");
     }
 
     if (filteredCandidates.length === 0) {
-      console.error("No candidates survived pre-filtering; candidateFallback will use top collected candidates.");
+      console.error("No candidates survived strict pre-filtering; candidateFallback will return fewer or zero resources.");
       const fallbackDigest = buildCandidateFallbackDigest(fallbackCandidates);
-      rememberDigest(fallbackDigest);
+      if (fallbackDigest.resources.length > 0) {
+        rememberDigest(fallbackDigest);
+      }
       return {
         digest: fallbackDigest,
         mode: "candidateFallback",
@@ -266,8 +286,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateCount: candidates.length,
         filteredCandidateCount: 0,
         selectedResourceCount: fallbackDigest.resources.length,
-        fallbackReason: "No candidates survived pre-filtering; used top collected candidates.",
+        fallbackReason: "No candidates survived strict pre-filtering.",
         sourceResults,
+        rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(fallbackDigest.resources)
       };
@@ -291,6 +312,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         filteredCandidateCount: filteredCandidates.length,
         selectedResourceCount: ranked.digest.resources.length,
         sourceResults,
+        rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(ranked.digest.resources)
       };
@@ -313,6 +335,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedResourceCount: fallbackDigest.resources.length,
           fallbackReason,
           sourceResults,
+          rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: previewResources(fallbackDigest.resources)
         };
@@ -330,6 +353,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedResourceCount: cachedDigest.resources.length,
           fallbackReason,
           sourceResults,
+          rejectedCandidates,
           candidatesPreview: previewCandidates(candidates),
           selectedPreview: previewResources(cachedDigest.resources)
         };
@@ -345,6 +369,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedResourceCount: 0,
         fallbackReason,
         sourceResults,
+        rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: []
       };
@@ -365,6 +390,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedResourceCount: cachedDigest.resources.length,
         fallbackReason,
         sourceResults,
+        rejectedCandidates,
         candidatesPreview: previewCandidates(candidates),
         selectedPreview: previewResources(cachedDigest.resources)
       };
@@ -381,6 +407,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       selectedResourceCount: 0,
       fallbackReason,
       sourceResults,
+      rejectedCandidates,
       candidatesPreview: previewCandidates(candidates),
       selectedPreview: []
     };

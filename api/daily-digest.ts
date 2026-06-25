@@ -36,6 +36,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
             filteredCandidateCount: result.filteredCandidateCount,
             selectedResourceCount: result.selectedResourceCount,
             sourceResults: result.sourceResults,
+            rejectedCandidates: result.rejectedCandidates,
             ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
           }
         }

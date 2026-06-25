@@ -72,6 +72,7 @@ Each resource includes:
 - `summary`
 - `design_system_angle`
 - `why_it_matters_to_our_team`
+- `directDesignSystemEvidence`
 - `relevance_score`
 - `worth_your_time_score`
 - `is_real_source`
@@ -98,13 +99,25 @@ Each resource includes:
       "error": null
     }
   ],
+  "rejectedCandidates": [
+    {
+      "title": "",
+      "source": "",
+      "url": "",
+      "rejectionReason": "",
+      "directDesignSystemEvidence": "",
+      "relevance_score": 0,
+      "worth_your_time_score": 0
+    }
+  ],
   "candidatesPreview": [
     {
       "title": "",
       "source": "",
       "url": "",
       "published_date": "",
-      "sourceScore": 5
+      "sourceScore": 5,
+      "directDesignSystemEvidence": ""
     }
   ],
   "selectedPreview": [

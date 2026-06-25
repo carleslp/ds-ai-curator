@@ -8,6 +8,7 @@ export type Resource = {
   summary: string;
   design_system_angle?: string;
   why_it_matters_to_our_team?: string;
+  directDesignSystemEvidence?: string;
   is_real_source?: boolean;
   relevance_score?: number;
   worth_your_time_score?: number;
