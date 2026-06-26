@@ -29,6 +29,7 @@ import {
   type ProviderName
 } from "./rankAndSummarize.js";
 import { truncateText } from "./textUtils.js";
+import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
 import {
   classifyCandidatesTopics,
   classifyCandidateTopics,
@@ -105,6 +106,9 @@ type DailyDigestResult = {
   hasOpenAIKey: boolean;
   hasGeminiKey: boolean;
   thesisEngineEnabled: boolean;
+  thesisLedgerEnabled: boolean;
+  thesisLedgerEntryCount: number;
+  thesisLedgerPreview: ThesisLedgerPreview;
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -124,6 +128,16 @@ const historyWindowMs = 30 * 24 * 60 * 60 * 1000;
 
 function thesisEngineEnabledFromEnv(): boolean {
   return process.env.THESIS_ENGINE === "true";
+}
+
+function emptyLedgerPreview(): ThesisLedgerPreview {
+  return {
+    totalEntries: 0,
+    latestPublishedAt: null,
+    latestClaimAsPublished: null,
+    latestThemeAnchor: null,
+    latestOutcome: null
+  };
 }
 
 function todayIsoDate(): string {
@@ -426,6 +440,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   const hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
   const thesisEngineEnabled = thesisEngineEnabledFromEnv();
+  const thesisLedgerEnabled = thesisEngineEnabled;
+  const thesisLedgerPreview = thesisLedgerEnabled ? await createLedgerPreview() : emptyLedgerPreview();
+  const thesisLedgerEntryCount = thesisLedgerPreview.totalEntries;
   let candidates: CandidateResource[] = [];
   let candidatePool: CandidateResource[] = [];
   let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
@@ -469,6 +486,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         thesisEngineEnabled,
+        thesisLedgerEnabled,
+        thesisLedgerEntryCount,
+        thesisLedgerPreview,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -499,6 +519,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         thesisEngineEnabled,
+        thesisLedgerEnabled,
+        thesisLedgerEntryCount,
+        thesisLedgerPreview,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -525,6 +548,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hasOpenAIKey,
           hasGeminiKey,
           thesisEngineEnabled,
+          thesisLedgerEnabled,
+          thesisLedgerEntryCount,
+          thesisLedgerPreview,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -548,6 +574,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hasOpenAIKey,
           hasGeminiKey,
           thesisEngineEnabled,
+          thesisLedgerEnabled,
+          thesisLedgerEntryCount,
+          thesisLedgerPreview,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -570,6 +599,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hasOpenAIKey,
           hasGeminiKey,
           thesisEngineEnabled,
+          thesisLedgerEnabled,
+          thesisLedgerEntryCount,
+          thesisLedgerPreview,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigest.resources.length,
@@ -590,6 +622,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         thesisEngineEnabled,
+        thesisLedgerEnabled,
+        thesisLedgerEntryCount,
+        thesisLedgerPreview,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -616,6 +651,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         thesisEngineEnabled,
+        thesisLedgerEnabled,
+        thesisLedgerEntryCount,
+        thesisLedgerPreview,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -638,6 +676,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hasOpenAIKey,
         hasGeminiKey,
         thesisEngineEnabled,
+        thesisLedgerEnabled,
+        thesisLedgerEntryCount,
+        thesisLedgerPreview,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigest.resources.length,
@@ -659,6 +700,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hasOpenAIKey,
       hasGeminiKey,
       thesisEngineEnabled,
+      thesisLedgerEnabled,
+      thesisLedgerEntryCount,
+      thesisLedgerPreview,
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,

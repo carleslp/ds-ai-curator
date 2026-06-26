@@ -9,6 +9,7 @@
     "build": "tsc",
     "test:email": "npm run build && node dist/src/testEmail.js",
     "test:sanitize": "npm run build && node dist/src/testEmailSanitization.js",
+    "test:ledger": "npm run build && node dist/src/testThesisLedger.js",
     "test:selection": "npm run build && node dist/src/testEditorialSelection.js",
     "start": "node dist/src/server.js",
     "start:server": "node dist/src/server.js"
