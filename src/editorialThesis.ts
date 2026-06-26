@@ -52,6 +52,23 @@ export type EvidenceSetSummary = {
   independenceMarkers: string[];
 };
 
+export type EvidenceGroup = {
+  groupKey: string;
+  claim: string;
+  evidenceCount: number;
+  supportingEvidenceCount: number;
+  contradictingEvidenceCount: number;
+  leadEvidenceTitle: string;
+  totalStrength: number;
+};
+
+export type EvidencePromotionRejection = {
+  title: string;
+  url: string;
+  source: string;
+  reason: string;
+};
+
 export type EditorialThesisResult = {
   selectionResult: EditorialSelectionResult;
   leadSignal: CandidateSignal | null;
@@ -61,6 +78,10 @@ export type EditorialThesisResult = {
   evidenceSetSummary: EvidenceSetSummary;
   evidenceFormationReasons: string[];
   degenerateEvidenceSet: boolean;
+  evidencePromotionInputCount: number;
+  promotedEvidenceCount: number;
+  evidenceGroups: EvidenceGroup[];
+  evidencePromotionRejections: EvidencePromotionRejection[];
 };
 
 type EvidenceCandidate = {
@@ -68,6 +89,7 @@ type EvidenceCandidate = {
   decision: EditorialSelectionDecision;
   evidence: SignalEvidence;
   strength: number;
+  groupKey: string;
 };
 
 function roundScore(value: number): number {
@@ -105,6 +127,56 @@ function evidenceStrength(decision: EditorialSelectionDecision): number {
     missionBonus +
     valueBonus
   );
+}
+
+function hasStrongDirectDesignSystemEvidence(candidate: CandidateResource, decision: EditorialSelectionDecision): boolean {
+  return (
+    candidate.directDesignSystemEvidence.trim().length > 0 ||
+    decision.designSystemTopics.length > 0 ||
+    decision.workflowTopics.length > 0 ||
+    decision.editorialScore.designSystemScore >= 8 ||
+    decision.editorialScore.workflowScore >= 8
+  );
+}
+
+function hasMeaningfulDsAiRelevance(candidate: CandidateResource, decision: EditorialSelectionDecision): boolean {
+  return (
+    decision.editorialMissionMatch &&
+    (decision.aiTopics.length > 0 || decision.editorialScore.aiScore > 0) &&
+    hasStrongDirectDesignSystemEvidence(candidate, decision)
+  );
+}
+
+function evidencePromotionRejectionReason(candidate: CandidateResource, decision: EditorialSelectionDecision): string {
+  if (!decision.editorialMissionMatch) {
+    return "Not promoted: candidate does not match the DS × AI mission.";
+  }
+
+  if (!decision.editorialValueMatch) {
+    return "Not promoted: candidate does not show concrete editorial value for mature Design System work.";
+  }
+
+  if (decision.editorialScore.beginnerPenalty >= 20) {
+    return "Not promoted: candidate reads as beginner Design System education.";
+  }
+
+  if (decision.editorialScore.marketingPenalty >= 10) {
+    return "Not promoted: candidate looks primarily like marketing or sales material.";
+  }
+
+  if (decision.editorialScore.genericPenalty >= 20) {
+    return "Not promoted: candidate is too generic for thesis evidence.";
+  }
+
+  if (!hasMeaningfulDsAiRelevance(candidate, decision)) {
+    return "Not promoted: candidate lacks meaningful DS × AI relevance.";
+  }
+
+  if (decision.editorialScore.totalScore < 30 && !hasStrongDirectDesignSystemEvidence(candidate, decision)) {
+    return `Not promoted: editorial score ${decision.editorialScore.totalScore} is below threshold and direct Design System evidence is weak.`;
+  }
+
+  return "";
 }
 
 function signalStrength(signal: CandidateSignal): number {
@@ -198,20 +270,58 @@ function buildEvidence(candidate: CandidateResource, decision: EditorialSelectio
   };
 }
 
-function promoteCandidatesToEvidence(selectionResult: EditorialSelectionResult): EvidenceCandidate[] {
-  return selectionResult.selectedCandidates
-    .map((candidate) => {
-      const decision = decisionForCandidate(candidate, selectionResult.selectedDecisions);
-      if (!decision) return undefined;
+function groupKeyFor(decision: EditorialSelectionDecision): string {
+  if (decision.editorialTitle) return decision.editorialTitle;
+  if (decision.topicGroup !== "Other") return decision.topicGroup;
+  return decision.designSystemTopics[0] ?? decision.workflowTopics[0] ?? decision.aiTopics[0] ?? "Unclassified";
+}
 
-      return {
-        candidate,
-        decision,
-        evidence: buildEvidence(candidate, decision),
-        strength: evidenceStrength(decision)
-      };
-    })
-    .filter((item): item is EvidenceCandidate => Boolean(item));
+function promoteCandidatesToEvidence(
+  candidatePool: CandidateResource[],
+  selectionResult: EditorialSelectionResult
+): {
+  promotedEvidence: EvidenceCandidate[];
+  evidencePromotionRejections: EvidencePromotionRejection[];
+} {
+  const promotedEvidence: EvidenceCandidate[] = [];
+  const evidencePromotionRejections: EvidencePromotionRejection[] = [];
+
+  for (const candidate of candidatePool) {
+    const decision = decisionForCandidate(candidate, selectionResult.decisions);
+    if (!decision) {
+      evidencePromotionRejections.push({
+        title: candidate.title,
+        url: candidate.url,
+        source: candidate.source,
+        reason: "Not promoted: candidate had no editorial decision metadata."
+      });
+      continue;
+    }
+
+    const rejectionReason = evidencePromotionRejectionReason(candidate, decision);
+    if (rejectionReason) {
+      evidencePromotionRejections.push({
+        title: candidate.title,
+        url: candidate.url,
+        source: candidate.source,
+        reason: rejectionReason
+      });
+      continue;
+    }
+
+    promotedEvidence.push({
+      candidate,
+      decision,
+      evidence: buildEvidence(candidate, decision),
+      strength: evidenceStrength(decision),
+      groupKey: groupKeyFor(decision)
+    });
+  }
+
+  return {
+    promotedEvidence,
+    evidencePromotionRejections
+  };
 }
 
 function assignEvidenceRoles(evidenceCandidates: EvidenceCandidate[]): EvidenceCandidate[] {
@@ -249,6 +359,28 @@ function assignEvidenceRoles(evidenceCandidates: EvidenceCandidate[]): EvidenceC
       }
     };
   });
+}
+
+function groupEvidenceCandidates(evidenceCandidates: EvidenceCandidate[]): EvidenceCandidate[][] {
+  const groups = new Map<string, EvidenceCandidate[]>();
+
+  for (const item of evidenceCandidates) {
+    const existing = groups.get(item.groupKey) ?? [];
+    existing.push(item);
+    groups.set(item.groupKey, existing);
+  }
+
+  return Array.from(groups.values()).map((group) => assignEvidenceRoles(group));
+}
+
+function evidenceGroupStrength(group: EvidenceCandidate[]): number {
+  const supportingCount = group.filter((item) => item.evidence.stance === "supports").length;
+  const independentMarkers = new Set(group.map((item) => item.evidence.independenceMarker)).size;
+  return group.reduce((total, item) => total + item.strength, 0) + supportingCount * 5 + independentMarkers * 4;
+}
+
+function selectLeadEvidenceGroup(groups: EvidenceCandidate[][]): EvidenceCandidate[] {
+  return [...groups].sort((a, b) => evidenceGroupStrength(b) - evidenceGroupStrength(a))[0] ?? [];
 }
 
 function claimFor(decision: EditorialSelectionDecision, candidate: CandidateResource): string {
@@ -295,26 +427,54 @@ function buildCandidateSignal(lead: EvidenceCandidate, evidenceSet: SignalEviden
   };
 }
 
-function orderSelectionByLead(selectionResult: EditorialSelectionResult, leadSignal: CandidateSignal | null): EditorialSelectionResult {
+function selectionFromLeadEvidence(
+  selectionResult: EditorialSelectionResult,
+  leadGroup: EvidenceCandidate[],
+  leadSignal: CandidateSignal | null
+): EditorialSelectionResult {
   if (!leadSignal) {
-    return selectionResult;
+    return {
+      ...selectionResult,
+      selectedCandidates: [],
+      selectedDecisions: [],
+      decisions: selectionResult.rejectedDecisions,
+      editorsPickCandidate: undefined
+    };
   }
 
   const leadUrl = leadSignal.resourceUrl;
   const selectedCandidates = [
-    ...selectionResult.selectedCandidates.filter((candidate) => candidate.url === leadUrl),
-    ...selectionResult.selectedCandidates.filter((candidate) => candidate.url !== leadUrl)
+    ...leadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => item.candidate),
+    ...leadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => item.candidate)
   ];
   const selectedDecisions = [
-    ...selectionResult.selectedDecisions.filter((decision) => decision.url === leadUrl),
-    ...selectionResult.selectedDecisions.filter((decision) => decision.url !== leadUrl)
+    ...leadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => ({
+      ...item.decision,
+      selectedBecause: item.decision.selectedBecause || `Selected as lead Evidence for "${leadSignal.claim}".`,
+      skippedBecause: ""
+    })),
+    ...leadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => ({
+      ...item.decision,
+      selectedBecause: item.decision.selectedBecause || `Selected as ${item.evidence.role} Evidence for "${leadSignal.claim}".`,
+      skippedBecause: ""
+    }))
   ];
+  const selectedUrls = new Set(selectedCandidates.map((candidate) => candidate.url));
+  const rejectedDecisions = selectionResult.decisions
+    .filter((decision) => !selectedUrls.has(decision.url))
+    .map((decision) => ({
+      ...decision,
+      selectedBecause: "",
+      skippedBecause: decision.skippedBecause || decision.rejectionReason || "Not part of the selected Lead Signal evidence set."
+    }));
 
   return {
     ...selectionResult,
     selectedCandidates,
     selectedDecisions,
-    decisions: [...selectedDecisions, ...selectionResult.rejectedDecisions],
+    rejectedDecisions,
+    decisions: [...selectedDecisions, ...rejectedDecisions],
+    qualifyingCandidateCount: selectedCandidates.length,
     editorsPickCandidate: selectedCandidates[0] ?? selectionResult.editorsPickCandidate
   };
 }
@@ -332,6 +492,22 @@ function evidenceSetSummaryFor(evidenceSet: SignalEvidence[]): EvidenceSetSummar
   };
 }
 
+function evidenceGroupsFor(groups: EvidenceCandidate[][]): EvidenceGroup[] {
+  return groups.map((group) => {
+    const evidenceSet = group.map((item) => item.evidence);
+    const lead = group.find((item) => item.evidence.role === "lead") ?? group[0];
+    return {
+      groupKey: lead?.groupKey ?? "",
+      claim: lead ? claimFor(lead.decision, lead.candidate) : "",
+      evidenceCount: evidenceSet.length,
+      supportingEvidenceCount: evidenceSet.filter((evidence) => evidence.stance === "supports").length,
+      contradictingEvidenceCount: evidenceSet.filter((evidence) => evidence.stance === "contradicts").length,
+      leadEvidenceTitle: lead?.evidence.resourceRef.title ?? "",
+      totalStrength: roundScore(evidenceGroupStrength(group))
+    };
+  });
+}
+
 function emptyEvidenceSetSummary(): EvidenceSetSummary {
   return {
     evidenceCount: 0,
@@ -344,31 +520,36 @@ function emptyEvidenceSetSummary(): EvidenceSetSummary {
 
 export function selectEditorialThesis(candidatePool: CandidateResource[]): EditorialThesisResult {
   const baseSelection = selectEditorialCandidates(candidatePool);
-  const promotedEvidence = assignEvidenceRoles(promoteCandidatesToEvidence(baseSelection));
-  const evidenceSet = promotedEvidence.map((item) => item.evidence);
-  const leadEvidence = promotedEvidence.find((item) => item.evidence.role === "lead");
+  const { promotedEvidence, evidencePromotionRejections } = promoteCandidatesToEvidence(candidatePool, baseSelection);
+  const evidenceGroupsRaw = groupEvidenceCandidates(promotedEvidence);
+  const leadGroup = selectLeadEvidenceGroup(evidenceGroupsRaw);
+  const evidenceSet = leadGroup.map((item) => item.evidence);
+  const leadEvidence = leadGroup.find((item) => item.evidence.role === "lead");
   const leadSignal = leadEvidence ? buildCandidateSignal(leadEvidence, evidenceSet) : null;
-  const selectionResult = orderSelectionByLead(baseSelection, leadSignal);
+  const selectionResult = selectionFromLeadEvidence(baseSelection, leadGroup, leadSignal);
   const candidateSignals = leadSignal ? [leadSignal] : [];
-  const rejectedSignals = baseSelection.rejectedDecisions.map((decision) => ({
+  const rejectedSignals = selectionResult.rejectedDecisions.map((decision) => ({
     resourceUrl: decision.url,
     resourceTitle: decision.title,
     rejectionReason: decision.rejectionReason || decision.skippedBecause,
-    formationReason: `Not promoted to Evidence: ${decision.rejectionReason || decision.skippedBecause || "lower evidence strength"}.`
+    formationReason: `Not selected for Lead Signal Evidence: ${decision.rejectionReason || decision.skippedBecause || "outside the winning evidence group"}.`
   }));
   const evidenceSetSummary = evidenceSet.length ? evidenceSetSummaryFor(evidenceSet) : emptyEvidenceSetSummary();
+  const evidenceGroups = evidenceGroupsFor(evidenceGroupsRaw);
   const degenerateEvidenceSet = evidenceSet.length === 1;
   const evidenceFormationReasons = [
-    `Promoted ${baseSelection.selectedCandidates.length} selected qualified candidate${baseSelection.selectedCandidates.length === 1 ? "" : "s"} into Evidence.`,
+    `Evaluated ${candidatePool.length} qualified candidate pool item${candidatePool.length === 1 ? "" : "s"} for Evidence promotion.`,
+    `Promoted ${promotedEvidence.length} candidate${promotedEvidence.length === 1 ? "" : "s"} into Evidence before final thesis selection.`,
+    `Grouped promoted Evidence into ${evidenceGroups.length} claim/theme group${evidenceGroups.length === 1 ? "" : "s"}.`,
     leadSignal
       ? `Assigned exactly one lead supporting Evidence item: "${leadSignal.resourceTitle}".`
-      : "No Evidence set formed because no candidate survived editorial selection.",
+      : "No Evidence set formed because no candidate passed thesis Evidence eligibility.",
     degenerateEvidenceSet
       ? "Evidence set is degenerate because only one valid Evidence item supported the Lead Signal."
       : `Evidence set includes ${evidenceSet.length} items with ${evidenceSetSummary.contradictingEvidenceCount} contradicting item${evidenceSetSummary.contradictingEvidenceCount === 1 ? "" : "s"}.`
   ];
   const signalFormationReasons = [
-    `Evaluated ${baseSelection.selectedCandidates.length} selected candidates as Evidence candidates before Lead Signal formation.`,
+    `Evaluated ${promotedEvidence.length} promoted Evidence item${promotedEvidence.length === 1 ? "" : "s"} before Lead Signal formation.`,
     leadSignal
       ? `Selected "${leadSignal.claim}" as Lead Signal from first-class Evidence using editorial score, workflow impact, actionability, Monday Morning change, DS evidence, and mission match.`
       : "No Lead Signal formed because no Evidence item survived editorial selection."
@@ -382,6 +563,10 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
     signalFormationReasons,
     evidenceSetSummary,
     evidenceFormationReasons,
-    degenerateEvidenceSet
+    degenerateEvidenceSet,
+    evidencePromotionInputCount: candidatePool.length,
+    promotedEvidenceCount: promotedEvidence.length,
+    evidenceGroups,
+    evidencePromotionRejections
   };
 }

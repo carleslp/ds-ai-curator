@@ -176,8 +176,8 @@ assert.equal(
 );
 assert.deepEqual(
   new Set(thesisResult.selectionResult.selectedCandidates.map((candidate) => candidate.url)),
-  new Set(result.selectedCandidates.map((candidate) => candidate.url)),
-  "M2 should keep selected resources compatible with the existing selection path."
+  new Set(thesisResult.leadSignal.evidence.map((evidence) => evidence.resourceRef.url)),
+  "M2.5 should derive selected resources from the selected Lead Signal evidence set."
 );
 assert.ok(thesisResult.candidateSignals.length >= 1, "Qualified selected candidates should form candidate Signals.");
 assert.ok(thesisResult.rejectedSignals.length >= 1, "Rejected selection decisions should be exposed as rejected Signals.");
@@ -197,6 +197,31 @@ const degenerateThesisResult = selectEditorialThesis([
 assert.ok(degenerateThesisResult.leadSignal, "Single qualified candidate should still create a Lead Signal.");
 assert.equal(degenerateThesisResult.leadSignal.evidenceCount, 1);
 assert.equal(degenerateThesisResult.degenerateEvidenceSet, true);
+
+const evidenceBeforeSelectionResult = selectEditorialThesis([
+  candidate({
+    title: "AI semantic mapping for design tokens",
+    url: "https://example.com/ai-design-token-semantics",
+    source: "Design Tokens Lab",
+    snippet: "AI semantic mapping for design tokens and component library governance.",
+    cleanSummary: "AI semantic mapping for design tokens and component library governance.",
+    directDesignSystemEvidence: "AI and design tokens evidence in title/snippet.",
+    sourceScore: 4,
+    worthYourTimeScore: 4,
+    practicalityScore: 2
+  })
+]);
+
+assert.ok(
+  evidenceBeforeSelectionResult.leadSignal,
+  "THESIS_ENGINE=true should promote Evidence from the qualified candidate pool even when final selection would reject a Monday-empty item."
+);
+assert.equal(evidenceBeforeSelectionResult.evidencePromotionInputCount, 1);
+assert.equal(evidenceBeforeSelectionResult.promotedEvidenceCount, 1);
+assert.equal(evidenceBeforeSelectionResult.evidenceSetSummary.evidenceCount, 1);
+assert.equal(evidenceBeforeSelectionResult.selectionResult.selectedCandidates.length, 1);
+assert.equal(evidenceBeforeSelectionResult.selectionResult.selectedCandidates[0].url, "https://example.com/ai-design-token-semantics");
+assert.equal(evidenceBeforeSelectionResult.leadSignal.evidence[0].resourceRef.url, "https://example.com/ai-design-token-semantics");
 
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0
