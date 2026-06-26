@@ -78,6 +78,11 @@ export type EvidencePromotionRejection = {
   reason: string;
 };
 
+export type HiddenEvidenceReason = {
+  resourceRef: SignalEvidence["resourceRef"];
+  reason: string;
+};
+
 export type EditorialThesisResult = {
   selectionResult: EditorialSelectionResult;
   leadSignal: CandidateSignal | null;
@@ -93,6 +98,13 @@ export type EditorialThesisResult = {
   leadSignalSelectionReason: string;
   runnerUpEvidenceGroups: EvidenceGroup[];
   evidencePromotionRejections: EvidencePromotionRejection[];
+  representativeLeadEvidence: SignalEvidence | null;
+  representativeSupportingEvidence: SignalEvidence[];
+  representativeSelectionReasons: string[];
+  hiddenEvidenceCount: number;
+  hiddenEvidenceReasons: HiddenEvidenceReason[];
+  renderedResourceCount: number;
+  renderedResourceTitles: string[];
 };
 
 type EvidenceCandidate = {
@@ -237,6 +249,32 @@ function candidateText(candidate: CandidateResource): string {
 function isReleaseLike(candidate: CandidateResource): boolean {
   const text = `${candidate.title} ${candidate.source} ${candidate.url}`.toLowerCase();
   return /\b(release|changelog|alpha|beta|rc|v\d+\.\d+|\d+\.\d+\.\d+)\b/.test(text);
+}
+
+function normalizedTitle(value: string): string {
+  return value.toLowerCase().replace(/\bv?\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?\b/g, "version").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function repoKeyFor(candidate: CandidateResource): string {
+  try {
+    const url = new URL(candidate.url);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.hostname.includes("github.com") && parts.length >= 2) {
+      return `${url.hostname}/${parts[0]}/${parts[1]}`.toLowerCase();
+    }
+  } catch {
+    // Ignore malformed URLs; fall through to source family.
+  }
+
+  return sourceFamilyFor(candidate);
+}
+
+function releaseFamilyFor(candidate: CandidateResource): string {
+  if (!isReleaseLike(candidate)) {
+    return "";
+  }
+
+  return `${repoKeyFor(candidate)}:${normalizedTitle(candidate.title).replace(/\bversion\b/g, "release")}`;
 }
 
 function evidenceContribution(candidate: CandidateResource, decision: EditorialSelectionDecision): string {
@@ -558,39 +596,138 @@ function buildCandidateSignal(lead: EvidenceCandidate, evidenceSet: SignalEviden
   };
 }
 
-function renderableEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: string): EvidenceCandidate[] {
-  const lead = leadGroup.find((item) => item.candidate.url === leadUrl);
-  const rest = leadGroup.filter((item) => item.candidate.url !== leadUrl);
-  const sameSourceReleaseNotes = rest.filter(
-    (item) => lead && sourceFamilyFor(item.candidate) === sourceFamilyFor(lead.candidate) && isReleaseLike(item.candidate)
+function representativeRolePriority(item: EvidenceCandidate): number {
+  if (item.evidence.role === "lead") return 35;
+  if (item.evidence.role === "corroborating") return 22;
+  if (item.evidence.role === "context") return 12;
+  return 4;
+}
+
+function surfaceSetFor(item: EvidenceCandidate): Set<string> {
+  return new Set([
+    ...item.decision.workflowTopics,
+    ...item.decision.designSystemTopics,
+    ...item.decision.aiTopics,
+    item.decision.topicGroup
+  ]);
+}
+
+function representativeScore(item: EvidenceCandidate, selected: EvidenceCandidate[]): {
+  finalRepresentativeScore: number;
+  reason: string;
+  redundancyPenalty: number;
+  releaseFamilyPenalty: number;
+  sameRepoPenalty: number;
+  sameTitlePenalty: number;
+} {
+  const baseEvidenceWeight = item.evidence.editorialWeight ? item.evidence.editorialWeight * 20 : item.strength / 5;
+  const rolePriority = representativeRolePriority(item);
+  const selectedSourceFamilies = new Set(selected.map((selectedItem) => sourceFamilyFor(selectedItem.candidate)));
+  const selectedRepos = new Set(selected.map((selectedItem) => repoKeyFor(selectedItem.candidate)));
+  const selectedReleaseFamilies = new Set(selected.map((selectedItem) => releaseFamilyFor(selectedItem.candidate)).filter(Boolean));
+  const selectedTitles = new Set(selected.map((selectedItem) => normalizedTitle(selectedItem.candidate.title)));
+  const selectedSurfaces = new Set(selected.flatMap((selectedItem) => Array.from(surfaceSetFor(selectedItem))));
+  const itemSurfaces = Array.from(surfaceSetFor(item));
+  const newSurfaceCount = itemSurfaces.filter((surface) => !selectedSurfaces.has(surface)).length;
+  const sourceDiversityBonus = selectedSourceFamilies.has(sourceFamilyFor(item.candidate)) ? 0 : 14;
+  const workflowSurfaceDiversityBonus = newSurfaceCount * 3;
+  const designSystemSurfaceDiversityBonus = item.decision.designSystemTopics.some((topic) => !selectedSurfaces.has(topic)) ? 8 : 0;
+  const redundancyPenalty = selectedSourceFamilies.has(sourceFamilyFor(item.candidate)) ? 28 : 0;
+  const releaseFamily = releaseFamilyFor(item.candidate);
+  const releaseFamilyPenalty = releaseFamily && selectedReleaseFamilies.has(releaseFamily) ? 36 : 0;
+  const sameRepoPenalty = selectedRepos.has(repoKeyFor(item.candidate)) ? 24 : 0;
+  const sameTitlePenalty = selectedTitles.has(normalizedTitle(item.candidate.title)) ? 30 : 0;
+  const finalRepresentativeScore = roundScore(
+    baseEvidenceWeight +
+      rolePriority +
+      sourceDiversityBonus +
+      workflowSurfaceDiversityBonus +
+      designSystemSurfaceDiversityBonus -
+      redundancyPenalty -
+      releaseFamilyPenalty -
+      sameRepoPenalty -
+      sameTitlePenalty
   );
 
-  if (!lead || sameSourceReleaseNotes.length <= 2) {
-    return lead ? [lead, ...rest] : leadGroup;
+  return {
+    finalRepresentativeScore,
+    reason: `Representative score ${finalRepresentativeScore}: base ${roundScore(baseEvidenceWeight)}, role ${rolePriority}, source diversity ${sourceDiversityBonus}, workflow/design-surface diversity ${
+      workflowSurfaceDiversityBonus + designSystemSurfaceDiversityBonus
+    }, penalties ${redundancyPenalty + releaseFamilyPenalty + sameRepoPenalty + sameTitlePenalty}.`,
+    redundancyPenalty,
+    releaseFamilyPenalty,
+    sameRepoPenalty,
+    sameTitlePenalty
+  };
+}
+
+function hiddenReasonFor(item: EvidenceCandidate, selected: EvidenceCandidate[]): string {
+  const selectedTitles = new Set(selected.map((selectedItem) => normalizedTitle(selectedItem.candidate.title)));
+  const selectedSourceFamilies = new Set(selected.map((selectedItem) => sourceFamilyFor(selectedItem.candidate)));
+  const selectedRepos = new Set(selected.map((selectedItem) => repoKeyFor(selectedItem.candidate)));
+  const selectedReleaseFamilies = new Set(selected.map((selectedItem) => releaseFamilyFor(selectedItem.candidate)).filter(Boolean));
+  const releaseFamily = releaseFamilyFor(item.candidate);
+
+  if (selectedTitles.has(normalizedTitle(item.candidate.title))) return "duplicate title";
+  if (releaseFamily && selectedReleaseFamilies.has(releaseFamily)) return "same release family";
+  if (selectedRepos.has(repoKeyFor(item.candidate))) return "same repo";
+  if (selectedSourceFamilies.has(sourceFamilyFor(item.candidate))) return "same source family";
+  return "lower representative score than selected item";
+}
+
+function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: string): {
+  representatives: EvidenceCandidate[];
+  representativeSelectionReasons: string[];
+  hiddenEvidenceReasons: HiddenEvidenceReason[];
+} {
+  const lead = leadGroup.find((item) => item.candidate.url === leadUrl);
+  if (!lead) {
+    return {
+      representatives: [],
+      representativeSelectionReasons: ["No representative Evidence selected because no lead Evidence item exists."],
+      hiddenEvidenceReasons: leadGroup.map((item) => ({
+        resourceRef: item.evidence.resourceRef,
+        reason: "lower representative score than selected item"
+      }))
+    };
   }
 
-  const allowedSameSourceReleaseUrls = new Set(
-    sameSourceReleaseNotes
-      .sort((a, b) => b.strength - a.strength)
-      .slice(0, 2)
-      .map((item) => item.candidate.url)
-  );
+  const representatives: EvidenceCandidate[] = [lead];
+  const representativeSelectionReasons = [`Selected lead representative Evidence: "${lead.evidence.resourceRef.title}".`];
+  const remaining = leadGroup.filter((item) => item.candidate.url !== leadUrl);
 
-  return [
-    lead,
-    ...rest.filter(
-      (item) =>
-        sourceFamilyFor(item.candidate) !== sourceFamilyFor(lead.candidate) ||
-        !isReleaseLike(item.candidate) ||
-        allowedSameSourceReleaseUrls.has(item.candidate.url)
-    )
-  ];
+  while (representatives.length < 4 && remaining.length > 0) {
+    const scored = remaining
+      .map((item) => ({ item, score: representativeScore(item, representatives) }))
+      .sort((a, b) => b.score.finalRepresentativeScore - a.score.finalRepresentativeScore);
+    const next = scored[0];
+
+    if (!next || next.score.finalRepresentativeScore < 20) {
+      break;
+    }
+
+    representatives.push(next.item);
+    representativeSelectionReasons.push(`Selected supporting representative "${next.item.evidence.resourceRef.title}". ${next.score.reason}`);
+    remaining.splice(remaining.indexOf(next.item), 1);
+  }
+
+  const hiddenEvidenceReasons = remaining.map((item) => ({
+    resourceRef: item.evidence.resourceRef,
+    reason: hiddenReasonFor(item, representatives)
+  }));
+
+  return {
+    representatives,
+    representativeSelectionReasons,
+    hiddenEvidenceReasons
+  };
 }
 
 function selectionFromLeadEvidence(
   selectionResult: EditorialSelectionResult,
   leadGroup: EvidenceCandidate[],
-  leadSignal: CandidateSignal | null
+  leadSignal: CandidateSignal | null,
+  representatives: EvidenceCandidate[]
 ): EditorialSelectionResult {
   if (!leadSignal) {
     return {
@@ -603,18 +740,17 @@ function selectionFromLeadEvidence(
   }
 
   const leadUrl = leadSignal.resourceUrl;
-  const renderableLeadGroup = renderableEvidenceGroup(leadGroup, leadUrl);
   const selectedCandidates = [
-    ...renderableLeadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => item.candidate),
-    ...renderableLeadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => item.candidate)
+    ...representatives.filter((item) => item.candidate.url === leadUrl).map((item) => item.candidate),
+    ...representatives.filter((item) => item.candidate.url !== leadUrl).map((item) => item.candidate)
   ];
   const selectedDecisions = [
-    ...renderableLeadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => ({
+    ...representatives.filter((item) => item.candidate.url === leadUrl).map((item) => ({
       ...item.decision,
       selectedBecause: item.decision.selectedBecause || `Selected as lead Evidence for "${leadSignal.claim}".`,
       skippedBecause: ""
     })),
-    ...renderableLeadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => ({
+    ...representatives.filter((item) => item.candidate.url !== leadUrl).map((item) => ({
       ...item.decision,
       selectedBecause: item.decision.selectedBecause || `Selected as ${item.evidence.role} Evidence for "${leadSignal.claim}".`,
       skippedBecause: ""
@@ -690,7 +826,17 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
   const evidenceSet = leadGroup.map((item) => item.evidence);
   const leadEvidence = leadGroup.find((item) => item.evidence.role === "lead");
   const leadSignal = leadEvidence ? buildCandidateSignal(leadEvidence, evidenceSet) : null;
-  const selectionResult = selectionFromLeadEvidence(baseSelection, leadGroup, leadSignal);
+  const representativeResult = leadSignal
+    ? representativeEvidenceGroup(leadGroup, leadSignal.resourceUrl)
+    : {
+        representatives: [],
+        representativeSelectionReasons: ["No representative Evidence selected because no Lead Signal exists."],
+        hiddenEvidenceReasons: leadGroup.map((item) => ({
+          resourceRef: item.evidence.resourceRef,
+          reason: "lower representative score than selected item"
+        }))
+      };
+  const selectionResult = selectionFromLeadEvidence(baseSelection, leadGroup, leadSignal, representativeResult.representatives);
   const candidateSignals = leadSignal ? [leadSignal] : [];
   const rejectedSignals = selectionResult.rejectedDecisions.map((decision) => ({
     resourceUrl: decision.url,
@@ -735,6 +881,13 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
     evidenceGroups,
     leadSignalSelectionReason,
     runnerUpEvidenceGroups,
-    evidencePromotionRejections
+    evidencePromotionRejections,
+    representativeLeadEvidence: representativeResult.representatives[0]?.evidence ?? null,
+    representativeSupportingEvidence: representativeResult.representatives.slice(1).map((item) => item.evidence),
+    representativeSelectionReasons: representativeResult.representativeSelectionReasons,
+    hiddenEvidenceCount: representativeResult.hiddenEvidenceReasons.length,
+    hiddenEvidenceReasons: representativeResult.hiddenEvidenceReasons,
+    renderedResourceCount: selectionResult.selectedCandidates.length,
+    renderedResourceTitles: selectionResult.selectedCandidates.map((candidate) => candidate.title)
   };
 }

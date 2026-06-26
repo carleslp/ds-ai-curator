@@ -296,6 +296,64 @@ assert.ok(
   "Rendered resources should not exceed the internal Evidence set."
 );
 
+const releaseClusterResult = selectEditorialThesis([
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.1",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.1",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP preset metadata for component docs.",
+    cleanSummary: "Storybook AI MCP preset metadata for component docs.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.2",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.2",
+    source: "Storybook Releases",
+    snippet: "Storybook AI CLI MCP passthrough for component docs.",
+    cleanSummary: "Storybook AI CLI MCP passthrough for component docs.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.3",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.3",
+    source: "Storybook Releases",
+    snippet: "Storybook component manifest docgen for AI-readable docs.",
+    cleanSummary: "Storybook component manifest docgen for AI-readable docs.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.4",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.4",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata for documentation automation.",
+    cleanSummary: "Storybook AI MCP component metadata for documentation automation.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.5",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.5",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata and docgen updates for component documentation automation.",
+    cleanSummary: "Storybook AI MCP component metadata and docgen updates for component documentation automation.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  })
+]);
+
+assert.ok(releaseClusterResult.leadSignal, "Release cluster should still create a Lead Signal.");
+assert.ok(releaseClusterResult.leadSignal.evidenceCount > 1, "Full Evidence set should remain intact internally.");
+assert.ok(releaseClusterResult.representativeLeadEvidence, "Representative lead Evidence should be exposed.");
+assert.ok(releaseClusterResult.representativeSelectionReasons.length >= 1, "Representative selection reasons should be exposed.");
+assert.ok(releaseClusterResult.hiddenEvidenceCount >= 2, "Near-identical release evidence should be hidden from rendered resources.");
+assert.ok(
+  releaseClusterResult.selectionResult.selectedCandidates.length < releaseClusterResult.leadSignal.evidenceCount,
+  "Rendered resources should use representative Evidence, not the full Evidence set."
+);
+assert.deepEqual(
+  releaseClusterResult.renderedResourceTitles,
+  releaseClusterResult.selectionResult.selectedCandidates.map((candidate) => candidate.title),
+  "Rendered resource debug titles should match selected representative resources."
+);
+
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0
 );
