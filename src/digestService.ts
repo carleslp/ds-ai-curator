@@ -15,6 +15,7 @@ import {
   createEditorialContextDebug,
   type EditorialContextDebug
 } from "./editorialContexts.js";
+import { validateSectionContracts, type SectionContractsDebug } from "./editorialContracts.js";
 import {
   selectEditorialCandidates,
   type EditorialSelectionDecision,
@@ -145,6 +146,11 @@ type DailyDigestResult = {
   renderedResourceTitles: string[];
   editorialContexts: EditorialContextDebug["editorialContexts"];
   contextBoundaryViolations: string[];
+  sectionContracts: SectionContractsDebug["sectionContracts"];
+  redundancyMatrix: SectionContractsDebug["redundancyMatrix"];
+  tensionHonesty: SectionContractsDebug["tensionHonesty"];
+  sectionContractViolations: string[];
+  sectionContractWarnings: string[];
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -301,6 +307,10 @@ function editorialContextDebugFor(
       resources: digest.resources
     })
   );
+}
+
+function sectionContractDebugFor(digest: Digest, leadSignal: CandidateSignal | null): SectionContractsDebug {
+  return validateSectionContracts(digest, leadSignal);
 }
 
 function candidateToResource(candidate: CandidateResource): Resource {
@@ -765,6 +775,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceCount,
         renderedResourceTitles,
         ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+        ...sectionContractDebugFor(fallbackDigest, leadSignal),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -828,6 +839,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceCount: editorialDigest.resources.length,
         renderedResourceTitles: editorialDigest.resources.map((resource) => resource.title),
         ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+        ...sectionContractDebugFor(editorialDigest, leadSignal),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -887,6 +899,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceCount: fallbackDigest.resources.length,
           renderedResourceTitles: fallbackDigest.resources.map((resource) => resource.title),
           ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+          ...sectionContractDebugFor(fallbackDigest, leadSignal),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -934,6 +947,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceCount,
           renderedResourceTitles,
           ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+          ...sectionContractDebugFor(emptyDigest, leadSignal),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -981,6 +995,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceCount,
           renderedResourceTitles,
           ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+          ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1026,6 +1041,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceCount,
         renderedResourceTitles,
         ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+        ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1076,6 +1092,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceCount,
         renderedResourceTitles,
         ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+        ...sectionContractDebugFor(emptyDigest, leadSignal),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1123,6 +1140,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceCount,
         renderedResourceTitles,
         ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+        ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1169,6 +1187,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       renderedResourceCount,
       renderedResourceTitles,
       ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
+      ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,

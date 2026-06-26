@@ -47,6 +47,30 @@ function polishSignal(value: string): string {
   );
 }
 
+function publicationSafeText(value: string): string {
+  return cleanText(value)
+    .replace(/\bselected\b/gi, "chosen")
+    .replace(/\bcandidates?\b/gi, "items")
+    .replace(/\bquality-adjusted score\b/gi, "quality read")
+    .replace(/\bworkflow score\b/gi, "workflow read")
+    .replace(/\beditorial score\b/gi, "editorial read")
+    .replace(/\bevidence items?\b/gi, "signals")
+    .replace(/\blead evidence\b/gi, "clearest example")
+    .replace(/\bsupporting evidence\b/gi, "related signals")
+    .replace(/\bevidence\b/gi, "signal")
+    .replace(/\bresources?\b/gi, "items")
+    .replace(/\branked?\b/gi, "prioritized")
+    .replace(/\branking\b/gi, "prioritization")
+    .replace(/\bscored?\b/gi, "rated")
+    .replace(/\bclusters?\b/gi, "patterns")
+    .replace(/\bpipeline\b/gi, "workflow")
+    .replace(/\bformation\b/gi, "shape")
+    .replace(/\bactionability\b/gi, "practicality")
+    .replace(/\bdebug\b/gi, "review")
+    .replace(/\bprompt\b/gi, "brief")
+    .replace(/\bLLM reasoning\b/gi, "model output");
+}
+
 const workflowAreas = [
   "Figma",
   "Storybook",
@@ -121,20 +145,31 @@ function workflowPhrase(areas: string[]): string {
   return `${areas.slice(0, -1).join(", ")}, and ${areas[areas.length - 1]}`;
 }
 
-function whyItMatters(resource: Resource, areas: string[], index: number): string {
-  const evidence = truncateText(
+function whyItMatters(resource: Resource, areas: string[], index: number, contractMode: boolean): string {
+  const signal = truncateText(
     resource.directDesignSystemEvidence || resource.design_system_angle || resource.cleanSummary || resource.summary,
     120
   );
   const areaPhrase = workflowPhrase(areas);
+  if (!contractMode) {
+    const legacyPatterns = [
+      `Use this to decide where ${areaPhrase} need clearer machine-readable guidance; the useful signal is ${signal}`,
+      `This can sharpen how ${areaPhrase} are documented and reviewed before an internal agent suggests component changes; the direct clue is ${signal}`,
+      `The practical value is in translating ${areaPhrase} into repeatable system rules rather than one-off AI assistance; the evidence is ${signal}`,
+      `This should influence how we expose ${areaPhrase} to designers, engineers, and agents so AI output stays inside system constraints; the signal is ${signal}`,
+      `This gives the team a concrete lens for improving ${areaPhrase} without weakening governance or accessibility review; the strongest evidence is ${signal}`
+    ];
+    return truncateText(legacyPatterns[index % legacyPatterns.length], 220);
+  }
+
   const patterns = [
-    `Use this to decide where ${areaPhrase} need clearer machine-readable guidance; the useful signal is ${evidence}`,
-    `This can sharpen how ${areaPhrase} are documented and reviewed before an internal agent suggests component changes; the direct clue is ${evidence}`,
-    `The practical value is in translating ${areaPhrase} into repeatable system rules rather than one-off AI assistance; the evidence is ${evidence}`,
-    `This should influence how we expose ${areaPhrase} to designers, engineers, and agents so AI output stays inside system constraints; the signal is ${evidence}`,
-    `This gives the team a concrete lens for improving ${areaPhrase} without weakening governance or accessibility review; the strongest evidence is ${evidence}`
+    `Use this to decide where ${areaPhrase} need clearer machine-readable guidance; the useful clue is ${signal}`,
+    `This can sharpen how ${areaPhrase} are documented and reviewed before an internal agent suggests component changes; the direct clue is ${signal}`,
+    `The practical value is in translating ${areaPhrase} into repeatable system rules rather than one-off AI assistance; the clue is ${signal}`,
+    `This should influence how we expose ${areaPhrase} to designers, engineers, and agents so AI output stays inside system constraints; the signal is ${signal}`,
+    `This gives the team a concrete lens for improving ${areaPhrase} without weakening governance or accessibility review; the strongest clue is ${signal}`
   ];
-  return truncateText(patterns[index % patterns.length], 220);
+  return publicationSafeText(truncateText(patterns[index % patterns.length], 220));
 }
 
 function ignoreRisk(resource: Resource, areas: string[]): string {
@@ -171,6 +206,12 @@ function ignoreRisk(resource: Resource, areas: string[]): string {
 }
 
 function selectedReason(resource: Resource, areas: string[]): string {
+  return publicationSafeText(
+    truncateText(`Worth attention because it connects ${workflowPhrase(areas)} to a reusable Design System workflow, not just a generic AI update.`, 160)
+  );
+}
+
+function legacySelectedReason(resource: Resource, areas: string[]): string {
   return truncateText(
     `Selected because it connects ${workflowPhrase(areas)} to a reusable Design System workflow, not just a generic AI update.`,
     160
@@ -186,15 +227,18 @@ function expectedImpact(resource: Resource, areas: string[]): string {
   );
 }
 
-function enrichResources(resources: Resource[]): Resource[] {
+function enrichResources(resources: Resource[], contractMode = false): Resource[] {
   return resources.map((resource, index) => {
     const areas = resource.affected_workflow_areas?.length ? resource.affected_workflow_areas : affectedWorkflowAreas(resource);
 
     return {
       ...resource,
-      cleanSummary: truncateText(resource.cleanSummary ?? resource.summary, 280),
-      why_it_matters_to_our_team: whyItMatters(resource, areas, index),
-      why_selected: resource.why_selected ?? selectedReason(resource, areas),
+      cleanSummary: contractMode
+        ? publicationSafeText(truncateText(resource.cleanSummary ?? resource.summary, 280))
+        : truncateText(resource.cleanSummary ?? resource.summary, 280),
+      summary: contractMode ? publicationSafeText(truncateText(resource.summary, 280)) : truncateText(resource.summary, 280),
+      why_it_matters_to_our_team: whyItMatters(resource, areas, index, contractMode),
+      why_selected: resource.why_selected ?? (contractMode ? selectedReason(resource, areas) : legacySelectedReason(resource, areas)),
       expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas),
       who_should_read: resource.who_should_read ?? audienceFor(resource, areas),
       estimated_reading_time: resource.estimated_reading_time ?? readingTime(resource),
@@ -205,20 +249,34 @@ function enrichResources(resources: Resource[]): Resource[] {
   });
 }
 
-function applyEditorsPickContext(resource: Resource | null, context: EditorsPickContext): Resource | null {
+function applyEditorsPickContext(resource: Resource | null, context: EditorsPickContext, contractMode: boolean): Resource | null {
   if (!resource) return null;
 
   const contribution = context.contribution || resource.cleanSummary || resource.summary;
   const source = context.sourceMetadata?.source ?? resource.source;
 
+  if (!contractMode) {
+    return {
+      ...resource,
+      cleanSummary: truncateText(contribution, 280),
+      summary: truncateText(contribution, 280),
+      why_selected: truncateText(`Selected as lead evidence for this thesis: ${context.claim}`, 160),
+      expected_impact_on_workflow: truncateText(
+        `Expected to help the team inspect ${source} as evidence for an AI-enabled Design System workflow change.`,
+        180
+      )
+    };
+  }
+
   return {
     ...resource,
-    cleanSummary: truncateText(contribution, 280),
-    summary: truncateText(contribution, 280),
-    why_selected: truncateText(`Selected as lead evidence for this thesis: ${context.claim}`, 160),
-    expected_impact_on_workflow: truncateText(
-      `Expected to help the team inspect ${source} as evidence for an AI-enabled Design System workflow change.`,
-      180
+    cleanSummary: publicationSafeText(truncateText(contribution, 280)),
+    summary: publicationSafeText(truncateText(contribution, 280)),
+    why_selected: publicationSafeText(
+      truncateText(`This is the clearest concrete example of the shift: ${context.claim}`, 160)
+    ),
+    expected_impact_on_workflow: publicationSafeText(
+      truncateText(`Useful because ${source} shows how an AI-enabled Design System workflow becomes concrete.`, 180)
     )
   };
 }
@@ -237,25 +295,33 @@ export function selectEditorsPick(resources: Resource[]): Resource | null {
   })[0];
 }
 
-function buildSignal(context: SignalContext): string {
+function buildSignal(context: SignalContext, contractMode: boolean): string {
   if (!context.claim || context.claim === "No strong DS x AI signal cleared the bar today.") {
-    return "No strong signal cleared the bar today. The sources leaned either generic, introductory, or disconnected from mature Design System work. That is worth saying plainly: weak AI content creates false urgency, especially when it never touches Figma libraries, Storybook evidence, React implementation, governance, documentation, accessibility, or agent-readable QA. The useful move is to protect attention and inspect our own readiness. Pick one high-traffic component and ask whether an internal Design System Agent could understand its variants, token intent, accessibility states, Storybook examples, Azure DevOps links, and review rules without asking a human to interpret the gaps.";
+    return contractMode
+      ? "No strong shift cleared the bar today. The useful takeaway is restraint: weak AI commentary creates false urgency when it never touches Figma libraries, Storybook metadata, React implementation, governance, documentation, accessibility, or agent-readable QA."
+      : "No strong signal cleared the bar today. The sources leaned either generic, introductory, or disconnected from mature Design System work. That is worth saying plainly: weak AI content creates false urgency, especially when it never touches Figma libraries, Storybook evidence, React implementation, governance, documentation, accessibility, or agent-readable QA. The useful move is to protect attention and inspect our own readiness. Pick one high-traffic component and ask whether an internal Design System Agent could understand its variants, token intent, accessibility states, Storybook examples, Azure DevOps links, and review rules without asking a human to interpret the gaps.";
   }
 
   const themePhrase = context.themeAnchor || "Documentation + Internal Design System Agent";
-  const claim = truncateText(context.claim, 90);
-  const whyNow = truncateText(context.whyNow, 170);
-  const brief = `The useful signal is not that AI can produce more interface work; it is that mature systems now need sharper evidence. This week's strongest thread sits across ${themePhrase}: the places where component intent, implementation rules, and review criteria either become machine-readable or remain tribal knowledge. "${claim}" is the lead thesis because it points to workflow impact, not novelty theatre. ${whyNow} Speed matters less than whether generated work can be reviewed against the same system rules the team already owns.`;
+  if (!contractMode) {
+    const claim = truncateText(context.claim, 90);
+    const whyNow = truncateText(context.whyNow, 170);
+    const brief = `The useful signal is not that AI can produce more interface work; it is that mature systems now need sharper evidence. This week's strongest thread sits across ${themePhrase}: the places where component intent, implementation rules, and review criteria either become machine-readable or remain tribal knowledge. "${claim}" is the lead thesis because it points to workflow impact, not novelty theatre. ${whyNow} Speed matters less than whether generated work can be reviewed against the same system rules the team already owns.`;
+    return polishSignal(brief);
+  }
+
+  const whyNow = publicationSafeText(truncateText(context.whyNow, 170));
+  const brief = `This week’s strongest shift is that AI-assisted Design System work is becoming constrained less by generation and more by the structured knowledge it can safely consume across ${themePhrase}. The timing matters because ${whyNow}`;
 
   return polishSignal(brief);
 }
 
-function buildSupportingSignals(context: SupportingSignalsContext): string[] {
+function buildSupportingSignals(context: SupportingSignalsContext, contractMode: boolean): string[] {
   if (context.representativeSupportingEvidence.length === 0) {
     return [
       "Most available items were too broad for a mature Design System team.",
       "The practical gap is still internal: component knowledge needs to be readable by people and agents.",
-      "Attention should stay on evidence, not AI commentary."
+      contractMode ? "Attention should stay on practical signals, not AI commentary." : "Attention should stay on evidence, not AI commentary."
     ];
   }
 
@@ -270,25 +336,31 @@ function buildSupportingSignals(context: SupportingSignalsContext): string[] {
       ? "Figma intent and React implementation need a tighter handshake before generation can be trusted."
       : "The strongest signals make system decisions easier to verify across design and engineering.",
     supportingText.includes("qa") || supportingText.includes("accessibility") || supportingText.includes("storybook")
-      ? "Storybook, accessibility, and QA evidence are becoming the guardrails for assisted delivery."
+      ? "Storybook, accessibility, and QA signals are becoming the guardrails for assisted delivery."
       : "Documentation is becoming an automation input, not a cleanup task."
   ];
 
   return signals.slice(0, 3);
 }
 
-function buildSuggestedExperiment(context: MoveContext): string {
+function buildSuggestedExperiment(context: MoveContext, contractMode: boolean): string {
   if (!context.opportunityMove) {
     return "In 30 minutes, audit one high-use component and add a checklist of what an internal Design System Agent and Internal QA Agent would need: Figma variant intent, Storybook examples, React/React Native props, accessibility states, Azure DevOps link, and governance rule.";
   }
 
-  return `In 30 minutes, use this move on ${context.targetSurface}: ${truncateText(
-    context.opportunityMove,
-    150
-  )} Start with ${context.preconditions[0] ?? "one high-use component"} and capture one gap an internal agent should not have to infer.`;
+  const experiment = contractMode
+    ? `Because ${context.targetSurface} now depends on clearer system assumptions, ${truncateText(
+        context.opportunityMove,
+        150
+      )} Start with ${context.preconditions[0] ?? "one high-use component"} and capture one gap an internal agent should not have to infer.`
+    : `In 30 minutes, use this move on ${context.targetSurface}: ${truncateText(
+        context.opportunityMove,
+        150
+      )} Start with ${context.preconditions[0] ?? "one high-use component"} and capture one gap an internal agent should not have to infer.`;
+  return contractMode ? publicationSafeText(experiment) : experiment;
 }
 
-function buildTeamQuestions(context: ImpactContext): string[] {
+function buildTeamQuestions(context: ImpactContext, contractMode: boolean): string[] {
   if (!context.claim) {
     return [
       "Which Figma library component would expose the biggest gap if an internal Design System Agent tried to explain it today?",
@@ -299,17 +371,31 @@ function buildTeamQuestions(context: ImpactContext): string[] {
 
   const surfaces = workflowPhrase(context.workflowSurface.length ? context.workflowSurface.slice(0, 3) : ["Figma", "Storybook"]);
 
-  return [
+  return contractMode
+    ? [
     `What would need to change in ${surfaces} for this signal to become usable in our workflow?`,
     "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
     `Which governance, accessibility, or Internal QA Agent check would reduce this cost of inaction: ${truncateText(
       context.costOfInaction,
       120
-    )}`
-  ];
+    ).replace(/[.]+$/, "")}?`
+      ]
+    : [
+        "What would need to change in Figma, Storybook, React, or React Native for this signal to become usable in our workflow?",
+        "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
+        "Which governance, accessibility, or Internal QA Agent check should stay visible before AI-assisted changes ship?"
+      ];
 }
 
-function buildNextWeekWatchlist(context: HorizonContext): string[] {
+function buildNextWeekWatchlist(context: HorizonContext, contractMode: boolean): string[] {
+  if (!contractMode) {
+    return [
+      "Watch whether Storybook AI/MCP work moves from release notes into repeatable component review workflows.",
+      "Track whether Figma-related AI work explains metadata quality, variant intent, and design-to-code review.",
+      "Look for governance patterns that tie AI-assisted changes back to documentation and ownership."
+    ];
+  }
+
   return context.watchlist.length
     ? context.watchlist.slice(0, 3)
     : [
@@ -320,9 +406,10 @@ function buildNextWeekWatchlist(context: HorizonContext): string[] {
 }
 
 export function withEditorialSections(digest: DigestInput, editorialContexts?: EditorialContexts): Digest {
-  const resources = enrichResources(digest.resources);
+  const contractMode = Boolean(editorialContexts);
+  const resources = enrichResources(digest.resources, contractMode);
   const provisionalEditorsPick = digest.editorsPick
-    ? enrichResources([digest.editorsPick])[0]
+    ? enrichResources([digest.editorsPick], contractMode)[0]
     : selectEditorsPick(resources);
   const contexts =
     editorialContexts ??
@@ -331,9 +418,10 @@ export function withEditorialSections(digest: DigestInput, editorialContexts?: E
       editorsPick: provisionalEditorsPick,
       resources
     });
-  const editorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext);
-  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext));
-  const supportingSignals = digest.supportingSignals ?? digest.thisWeeksSignals ?? buildSupportingSignals(contexts.supportingSignalsContext);
+  const editorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext, contractMode);
+  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext, contractMode));
+  const supportingSignals =
+    digest.supportingSignals ?? digest.thisWeeksSignals ?? buildSupportingSignals(contexts.supportingSignalsContext, contractMode);
 
   return {
     date: digest.date,
@@ -343,9 +431,9 @@ export function withEditorialSections(digest: DigestInput, editorialContexts?: E
     editorsPick,
     supportingSignals,
     thisWeeksSignals: supportingSignals,
-    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext),
-    teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(contexts.impactContext),
-    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(contexts.horizonContext),
+    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext, contractMode),
+    teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(contexts.impactContext, contractMode),
+    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(contexts.horizonContext, contractMode),
     ...(digest.leadSignal !== undefined ? { leadSignal: digest.leadSignal } : {}),
     resources
   };

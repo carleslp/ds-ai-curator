@@ -165,7 +165,7 @@ function surfaceFromOpportunity(opportunity: string | undefined, fallbackText: s
 function costOfInactionFrom(input: EditorialContextBuilderInput): string {
   const text = `${input.leadSignal?.claim ?? ""} ${input.leadSignal?.whyNow ?? ""} ${textFromResources(input.resources ?? [])}`;
   const areas = workflowAreasFromText(text).slice(0, 3).join(", ");
-  return `If we ignore this, ${areas} decisions stay dependent on interpretation instead of explicit Design System evidence.`;
+  return `If we ignore this, ${areas} decisions stay dependent on interpretation instead of explicit Design System rules.`;
 }
 
 export function buildEditorialContexts(input: EditorialContextBuilderInput): EditorialContexts {
@@ -179,7 +179,7 @@ export function buildEditorialContexts(input: EditorialContextBuilderInput): Edi
     input.leadSignal?.whyNow ||
       input.editorsPick?.cleanSummary ||
       input.editorsPick?.summary ||
-      "The available sources did not yet provide enough evidence for a stronger thesis."
+      "The available sources did not yet provide enough signal for a stronger briefing."
   );
   const workflowSurface = workflowAreasFromText(`${claim} ${whyNow} ${textFromResources(resources)}`);
   const opportunityMove =
@@ -229,18 +229,18 @@ export function buildEditorialContexts(input: EditorialContextBuilderInput): Edi
     },
     horizonContext: {
       watchlist: [
-        "Signals that expose component metadata to AI agents",
-        "Design-to-code work that explains review quality and component reuse",
-        "QA, accessibility, or governance automation that can connect back to Azure DevOps"
+        "Watch for tooling that exposes component metadata to AI agents",
+        "Track design-to-code work that explains review quality and component reuse",
+        "Look for QA, accessibility, or governance automation that can connect back to Azure DevOps"
       ],
       openQuestions: [
         "Which workflow surface is still too implicit for safe agent use?",
         "Which governance rule would fail if an AI-assisted change shipped today?"
       ],
-      unresolvedUncertainty: "Whether tooling can use Design System evidence reliably enough for repeated enterprise workflows.",
+      unresolvedUncertainty: "Whether tooling can use Design System signals reliably enough for repeated enterprise workflows.",
       falsificationConditions: [
         "The source does not connect AI tooling to mature Design System work",
-        "The workflow cannot be tested against Figma, Storybook, implementation, documentation, QA, or governance evidence"
+        "The workflow cannot be tested against Figma, Storybook, implementation, documentation, QA, or governance signals"
       ]
     }
   };
