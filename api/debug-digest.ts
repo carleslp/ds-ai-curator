@@ -1,5 +1,6 @@
 import { hasEditorialSections } from "../src/editorial.js";
 import { getDailyDigest } from "../src/digestService.js";
+import { buildRenderingPipelineTrace } from "../src/renderingPipelineTrace.js";
 
 type VercelRequest = {
   method?: string;
@@ -19,6 +20,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
 
   const result = await getDailyDigest();
+  const renderingPipelineTrace = buildRenderingPipelineTrace(result);
 
   response.setHeader("Cache-Control", "no-store");
   response.status(200).json({
@@ -52,6 +54,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     hiddenEvidenceReasons: result.hiddenEvidenceReasons,
     renderedResourceCount: result.renderedResourceCount,
     renderedResourceTitles: result.renderedResourceTitles,
+    renderingPipelineTrace,
     fallbackReason: result.fallbackReason ?? "",
     candidateCount: result.candidateCount,
     filteredCandidateCount: result.filteredCandidateCount,

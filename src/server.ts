@@ -2,6 +2,7 @@ import http from "node:http";
 import { hasEditorialSections } from "./editorial.js";
 import { renderEmail } from "./emailTemplate.js";
 import { buildSubject, getDailyDigest } from "./digestService.js";
+import { buildRenderingPipelineTrace } from "./renderingPipelineTrace.js";
 
 const port = Number(process.env.PORT ?? 3001);
 const host = process.env.HOST ?? "127.0.0.1";
@@ -41,6 +42,7 @@ const server = http.createServer(async (request, response) => {
 
   const result = await getDailyDigest();
   const { digest } = result;
+  const renderingPipelineTrace = buildRenderingPipelineTrace(result);
 
   if (url.pathname === "/api/debug-digest") {
     jsonResponse(response, 200, {
@@ -74,6 +76,7 @@ const server = http.createServer(async (request, response) => {
       hiddenEvidenceReasons: result.hiddenEvidenceReasons,
       renderedResourceCount: result.renderedResourceCount,
       renderedResourceTitles: result.renderedResourceTitles,
+      renderingPipelineTrace,
       fallbackReason: result.fallbackReason ?? "",
       candidateCount: result.candidateCount,
       filteredCandidateCount: result.filteredCandidateCount,
@@ -129,6 +132,7 @@ const server = http.createServer(async (request, response) => {
             hiddenEvidenceReasons: result.hiddenEvidenceReasons,
             renderedResourceCount: result.renderedResourceCount,
             renderedResourceTitles: result.renderedResourceTitles,
+            renderingPipelineTrace,
             candidateCount: result.candidateCount,
             filteredCandidateCount: result.filteredCandidateCount,
             selectedResourceCount: result.selectedResourceCount,
