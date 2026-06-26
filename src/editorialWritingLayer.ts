@@ -30,6 +30,7 @@ export type EditorialWritingLayerDebug = {
     finalContractPass: boolean;
     sections: Record<string, EditorialWritingLayerSectionDebug>;
   };
+  resourceCardIntegrity: ResourceCardIntegrityDebug;
 };
 
 type DraftSections = {
@@ -40,6 +41,46 @@ type DraftSections = {
   teamDiscussionQuestions: string[];
   nextWeekWatchlist: string[];
   resources: Resource[];
+};
+
+type ResourceCardIntegrityCard = {
+  title: string;
+  url: string;
+  source: string;
+  summaryPass: boolean;
+  whyItMattersPass: boolean;
+  impactPass: boolean;
+  bannedTerms: string[];
+  summaryWhyItMattersOverlap: number;
+  finalReaderFacingPreview: {
+    summary: string;
+    whyItMatters: string;
+    impact: string;
+  };
+};
+
+type ResourceCardIntegrityDebug = {
+  pass: boolean;
+  checkedCardCount: number;
+  failingCards: ResourceCardIntegrityCard[];
+  sanitizedCards: string[];
+  regeneratedCards: string[];
+  bannedTermsByCard: Array<{
+    title: string;
+    url: string;
+    terms: string[];
+  }>;
+  duplicateTitleCheck: {
+    pass: boolean;
+    duplicates: string[];
+  };
+  summaryWhyItMattersSimilarity: Array<{
+    title: string;
+    url: string;
+    overlap: number;
+    warning: boolean;
+  }>;
+  cards: ResourceCardIntegrityCard[];
 };
 
 const machineryReplacements: Array<[RegExp, string]> = [
@@ -81,12 +122,115 @@ const machineryReplacements: Array<[RegExp, string]> = [
   [/\bactionability\b/gi, "practicality"]
 ];
 
+const readerCardBannedTerms = [
+  "Editorial value",
+  "editorial value",
+  "selected",
+  "selected because",
+  "candidate",
+  "evidence",
+  "lead evidence",
+  "supporting evidence",
+  "resource ranking",
+  "rank",
+  "ranked",
+  "score",
+  "scored",
+  "editorial score",
+  "workflow score",
+  "quality-adjusted",
+  "actionability score",
+  "cluster",
+  "pipeline",
+  "formation",
+  "thesis path",
+  "grounded in",
+  "source marker",
+  "independence marker",
+  "rejection reason",
+  "skipped because",
+  "selectedBecause",
+  "skippedBecause",
+  "nothing Editorial value",
+  "The important shift is this",
+  "this direct clue is chosen",
+  "chosen from curated",
+  "curated Design System"
+];
+
 function safeText(value: string): string {
   return machineryReplacements
     .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), cleanText(value))
     .replace(/\s+/g, " ")
     .replace(/\s+([,.;:])/g, "$1")
     .trim();
+}
+
+function bannedTermsInReaderText(value: string): string[] {
+  const text = cleanText(value);
+  const lower = text.toLowerCase();
+
+  return readerCardBannedTerms.filter((term) => {
+    const normalized = term.toLowerCase();
+    if (/^[a-z0-9-]+$/i.test(normalized)) {
+      return new RegExp(`\\b${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text);
+    }
+
+    return lower.includes(normalized);
+  });
+}
+
+const cardStopWords = new Set([
+  "the",
+  "and",
+  "for",
+  "that",
+  "this",
+  "with",
+  "from",
+  "into",
+  "where",
+  "what",
+  "when",
+  "which",
+  "will",
+  "would",
+  "should",
+  "could",
+  "our",
+  "their",
+  "about",
+  "because",
+  "before",
+  "after",
+  "than",
+  "then",
+  "today",
+  "week"
+]);
+
+function uniqueReaderTerms(value: string): Set<string> {
+  return new Set(
+    cleanText(value)
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/[^a-z0-9\s-]+/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 3 && !cardStopWords.has(word))
+  );
+}
+
+function textOverlap(leftValue: string, rightValue: string): number {
+  const left = uniqueReaderTerms(leftValue);
+  const right = uniqueReaderTerms(rightValue);
+  if (left.size === 0 || right.size === 0) return 0;
+
+  let shared = 0;
+  for (const term of left) {
+    if (right.has(term)) shared += 1;
+  }
+
+  return Math.round((shared / Math.min(left.size, right.size)) * 100) / 100;
 }
 
 function cleanResourceTitle(value: string): string {
@@ -102,6 +246,102 @@ function normalizedTitle(value: string): string {
     .replace(/\bv?\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?\b/g, "version")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function workflowAreasFor(resource: Resource): string[] {
+  const text = `${resource.title} ${resource.source} ${resource.url} ${resource.summary} ${resource.cleanSummary ?? ""} ${
+    resource.directDesignSystemEvidence ?? ""
+  }`.toLowerCase();
+  const areas: string[] = [];
+  const add = (label: string, pattern: RegExp) => {
+    if (pattern.test(text) && !areas.includes(label)) areas.push(label);
+  };
+
+  add("Figma", /\bfigma\b|dev mode|code connect|variables?/i);
+  add("Storybook", /\bstorybook\b|component manifest|docgen/i);
+  add("React", /\breact\b/i);
+  add("React Native", /react native/i);
+  add("Design Tokens", /design tokens?|tokens?|variables?/i);
+  add("Documentation", /docs?|documentation|component metadata|metadata/i);
+  add("Accessibility", /accessibility|a11y/i);
+  add("QA", /\bqa\b|testing|test automation|review/i);
+  add("AI Agents", /\bagents?\b|mcp|llm|copilot|ai-assisted|artificial intelligence/i);
+  add("Design-to-Code", /design-to-code|code generation|component generation|ui generation/i);
+  add("Governance", /governance|ownership|policy|standards/i);
+
+  return areas.slice(0, 4);
+}
+
+function fallbackSummaryFor(resource: Resource): string {
+  const title = cleanResourceTitle(resource.title) || "This item";
+  const source = cleanText(resource.source) || "the source";
+  const areas = workflowAreasFor(resource);
+  const areaPhrase = areas.length > 0 ? ` It connects to ${areas.join(", ")} workflows.` : "";
+  return truncateText(`Covers ${title} from ${source}.${areaPhrase}`, 280);
+}
+
+function fallbackWhyItMattersFor(resource: Resource): string {
+  const areas = workflowAreasFor(resource);
+  if (areas.includes("Storybook")) {
+    return "This matters because AI-assisted Design System work needs component metadata, documentation, and examples that tools can read reliably.";
+  }
+  if (areas.includes("Figma") || areas.includes("Design-to-Code")) {
+    return "This matters because Figma metadata and design-to-code behavior shape how much review our team needs before generated UI can reuse system components.";
+  }
+  if (areas.includes("Design Tokens")) {
+    return "This matters because token intent has to be explicit enough for AI-assisted changes to preserve semantics, not just token names.";
+  }
+  if (areas.includes("Accessibility") || areas.includes("QA")) {
+    return "This matters because automated review only helps if it maps back to our accessibility, QA, and component ownership rules.";
+  }
+  if (areas.includes("Documentation") || areas.includes("AI Agents")) {
+    return "This matters because internal agents need trustworthy system context before they can propose or validate Design System changes.";
+  }
+
+  return "This matters because it points to how mature Design System workflows may need clearer context for AI-assisted implementation and review.";
+}
+
+function fallbackImpactFor(resource: Resource): string {
+  const areas = workflowAreasFor(resource);
+  if (areas.length > 0) {
+    return `Gives the team a concrete reason to review how ${areas.slice(0, 3).join(", ")} guidance is exposed to AI-assisted tools.`;
+  }
+
+  return "Gives the team a reason to check whether existing system guidance is explicit enough for AI-assisted delivery.";
+}
+
+function fallbackIgnoreRiskFor(resource: Resource): string {
+  const areas = workflowAreasFor(resource);
+  if (areas.includes("Storybook")) {
+    return "Our internal agents may keep relying on static docs instead of component metadata and examples.";
+  }
+  if (areas.includes("Figma") || areas.includes("Design-to-Code")) {
+    return "We may evaluate generated UI without checking whether Figma metadata supports component reuse.";
+  }
+  if (areas.includes("Accessibility") || areas.includes("QA")) {
+    return "Automated review may miss the system-specific rules that determine whether a change is shippable.";
+  }
+
+  return "AI-assisted work may keep depending on undocumented assumptions that should be part of the system surface.";
+}
+
+function safeReaderCopy(value: string | undefined, fallback: string, maxLength: number): { value: string; regenerated: boolean } {
+  const raw = cleanText(value || "");
+  const cleaned = safeText(raw);
+  const hasBannedTerms = bannedTermsInReaderText(raw).length > 0 || bannedTermsInReaderText(cleaned).length > 0;
+  const hasContent = cleaned.length > 0;
+
+  if (!hasContent || hasBannedTerms) {
+    return {
+      value: truncateText(fallback, maxLength),
+      regenerated: true
+    };
+  }
+
+  return {
+    value: truncateText(cleaned, maxLength),
+    regenerated: false
+  };
 }
 
 function preview(value: string): string {
@@ -173,21 +413,34 @@ export function writeSignalSection(context: SignalContext): string {
 export function writeEditorsPickSection(resource: Resource | null, context: EditorsPickContext): Resource | null {
   if (!resource) return null;
 
-  const title = context.sourceMetadata?.title || resource.title;
-  const source = context.sourceMetadata?.source || resource.source;
-  const contribution = safeText(context.contribution || resource.cleanSummary || resource.summary);
+  const safeResource = sanitizeResource(resource);
+  const title = context.sourceMetadata?.title || safeResource.title;
+  const source = context.sourceMetadata?.source || safeResource.source;
+  const contribution = safeText(context.contribution || safeResource.cleanSummary || safeResource.summary);
   const cleanSummary = contribution
     ? `${title} is useful because it shows ${truncateText(contribution, 190)}`
     : `${title} is useful because it makes the shift concrete for mature Design System work.`;
+  const summaryCopy = safeReaderCopy(cleanSummary, fallbackSummaryFor({ ...safeResource, title, source }), 220);
+  const whyCopy = safeReaderCopy(
+    safeResource.why_it_matters_to_our_team,
+    fallbackWhyItMattersFor({ ...safeResource, title, source }),
+    180
+  );
+  const impactCopy = safeReaderCopy(
+    `${source} shows the workflow moving from generation toward verification and reusable system context.`,
+    fallbackImpactFor({ ...safeResource, title, source }),
+    180
+  );
 
   return {
-    ...resource,
+    ...safeResource,
     title,
     source,
-    cleanSummary: safeText(cleanSummary),
-    summary: safeText(cleanSummary),
+    cleanSummary: summaryCopy.value,
+    summary: summaryCopy.value,
+    why_it_matters_to_our_team: whyCopy.value,
     why_selected: safeText(`${title} is the clearest concrete example of this week’s shift.`),
-    expected_impact_on_workflow: safeText(`${source} shows the workflow moving from generation toward verification and reusable system context.`)
+    expected_impact_on_workflow: impactCopy.value
   };
 }
 
@@ -236,21 +489,32 @@ export function writeWatchlistSection(context: HorizonContext): string[] {
 }
 
 function sanitizeResource(resource: Resource): Resource {
-  return {
+  const title = cleanResourceTitle(resource.title);
+  const summary = safeReaderCopy(resource.cleanSummary || resource.summary, fallbackSummaryFor({ ...resource, title }), 280);
+  let whyItMatters = safeReaderCopy(resource.why_it_matters_to_our_team, fallbackWhyItMattersFor({ ...resource, title }), 220);
+  const impact = safeReaderCopy(resource.expected_impact_on_workflow, fallbackImpactFor({ ...resource, title }), 180);
+  const ignoreRisk = safeReaderCopy(resource.ignore_risk, fallbackIgnoreRiskFor({ ...resource, title }), 180);
+
+  if (textOverlap(summary.value, whyItMatters.value) >= 0.58) {
+    whyItMatters = {
+      value: fallbackWhyItMattersFor({ ...resource, title }),
+      regenerated: true
+    };
+  }
+
+  const sanitized = {
     ...resource,
-    title: cleanResourceTitle(resource.title),
+    title,
     editorialTitle: undefined,
-    cleanSummary: resource.cleanSummary ? safeText(resource.cleanSummary) : resource.cleanSummary,
-    summary: safeText(resource.summary),
-    why_selected: resource.why_selected ? safeText(resource.why_selected) : resource.why_selected,
-    expected_impact_on_workflow: resource.expected_impact_on_workflow
-      ? safeText(resource.expected_impact_on_workflow)
-      : resource.expected_impact_on_workflow,
-    why_it_matters_to_our_team: resource.why_it_matters_to_our_team
-      ? safeText(resource.why_it_matters_to_our_team)
-      : resource.why_it_matters_to_our_team,
-    ignore_risk: resource.ignore_risk ? safeText(resource.ignore_risk) : resource.ignore_risk
+    cleanSummary: summary.value,
+    summary: summary.value,
+    why_selected: undefined,
+    expected_impact_on_workflow: impact.value,
+    why_it_matters_to_our_team: whyItMatters.value,
+    ignore_risk: ignoreRisk.value
   };
+
+  return sanitized;
 }
 
 function dedupeSupportingResources(resources: Resource[]): Resource[] {
@@ -298,6 +562,76 @@ function buildFallbackSections(digest: Digest, contexts: EditorialContexts): Dra
   };
 }
 
+function validateResourceCardIntegrity(cards: Resource[], beforeCards: Resource[] = cards): ResourceCardIntegrityDebug {
+  const titleCounts = new Map<string, number>();
+  for (const card of cards) {
+    const key = normalizedTitle(card.title);
+    titleCounts.set(key, (titleCounts.get(key) ?? 0) + 1);
+  }
+  const duplicateTitles = cards
+    .filter((card) => (titleCounts.get(normalizedTitle(card.title)) ?? 0) > 1)
+    .map((card) => card.title);
+
+  const sanitizedCards: string[] = [];
+  const regeneratedCards: string[] = [];
+  const cardResults = cards.map((card) => {
+    const before = beforeCards.find((candidate) => candidate.url === card.url);
+    const beforeText = [before?.cleanSummary, before?.summary, before?.why_it_matters_to_our_team, before?.expected_impact_on_workflow].join(" ");
+    const afterText = [card.cleanSummary, card.summary, card.why_it_matters_to_our_team, card.expected_impact_on_workflow, card.ignore_risk].join(" ");
+    const bannedTerms = bannedTermsInReaderText(afterText);
+    const summaryTerms = bannedTermsInReaderText(card.cleanSummary || card.summary);
+    const whyTerms = bannedTermsInReaderText(card.why_it_matters_to_our_team || "");
+    const impactTerms = bannedTermsInReaderText(card.expected_impact_on_workflow || "");
+    const overlap = textOverlap(card.cleanSummary || card.summary, card.why_it_matters_to_our_team || "");
+
+    if (cleanText(beforeText) !== cleanText(afterText)) sanitizedCards.push(card.title);
+    if (bannedTermsInReaderText(beforeText).length > 0 || overlap >= 0.58) regeneratedCards.push(card.title);
+
+    return {
+      title: card.title,
+      url: card.url,
+      source: card.source,
+      summaryPass: summaryTerms.length === 0,
+      whyItMattersPass: whyTerms.length === 0 && overlap < 0.58,
+      impactPass: impactTerms.length === 0,
+      bannedTerms,
+      summaryWhyItMattersOverlap: overlap,
+      finalReaderFacingPreview: {
+        summary: preview(card.cleanSummary || card.summary),
+        whyItMatters: preview(card.why_it_matters_to_our_team || ""),
+        impact: preview(card.expected_impact_on_workflow || "")
+      }
+    };
+  });
+  const failingCards = cardResults.filter(
+    (card) => !card.summaryPass || !card.whyItMattersPass || !card.impactPass || card.bannedTerms.length > 0
+  );
+
+  return {
+    pass: failingCards.length === 0 && duplicateTitles.length === 0,
+    checkedCardCount: cards.length,
+    failingCards,
+    sanitizedCards,
+    regeneratedCards,
+    bannedTermsByCard: cardResults.map((card) => ({
+      title: card.title,
+      url: card.url,
+      terms: card.bannedTerms
+    })),
+    duplicateTitleCheck: {
+      pass: duplicateTitles.length === 0,
+      duplicates: duplicateTitles
+    },
+    summaryWhyItMattersSimilarity: cardResults.map((card) => ({
+      title: card.title,
+      url: card.url,
+      overlap: card.summaryWhyItMattersOverlap,
+      warning: card.summaryWhyItMattersOverlap >= 0.58
+    })),
+    cards: cardResults
+  };
+}
+
 export function applyEditorialWritingLayer(
   digest: Digest,
   contexts: EditorialContexts,
@@ -306,6 +640,9 @@ export function applyEditorialWritingLayer(
   const originalSections = draftFromDigest(digest);
   const initialContracts = validateSectionContracts(digest, leadSignal);
   const fallbackSections = buildFallbackSections(digest, contexts);
+  const originalResourceCards = [originalSections.editorsPick, ...originalSections.resources].filter(
+    (resource): resource is Resource => Boolean(resource)
+  );
   let finalSections: DraftSections = {
     theSignal: safeText(originalSections.theSignal),
     editorsPick: originalSections.editorsPick ? sanitizeResource(originalSections.editorsPick) : null,
@@ -371,6 +708,8 @@ export function applyEditorialWritingLayer(
 
   const originalSectionTextPreview = Object.fromEntries(sectionNames.map((sectionName) => [sectionName, preview(sectionText(originalSections, sectionName))]));
   const finalSectionTextPreview = Object.fromEntries(sectionNames.map((sectionName) => [sectionName, preview(sectionText(finalSections, sectionName))]));
+  const finalResourceCards = [finalDigest.editorsPick, ...finalDigest.resources].filter((resource): resource is Resource => Boolean(resource));
+  const resourceCardIntegrity = validateResourceCardIntegrity(finalResourceCards, originalResourceCards);
 
   return {
     digest: finalDigest,
@@ -382,7 +721,8 @@ export function applyEditorialWritingLayer(
       rewriteReasons,
       finalContractPass: finalContracts.sectionContractViolations.length === 0,
       sections: sectionDebug
-    }
+    },
+    resourceCardIntegrity
   };
 }
 
@@ -396,6 +736,20 @@ export function emptyEditorialWritingLayerDebug(): EditorialWritingLayerDebug {
       rewriteReasons: [],
       finalContractPass: true,
       sections: {}
+    },
+    resourceCardIntegrity: {
+      pass: true,
+      checkedCardCount: 0,
+      failingCards: [],
+      sanitizedCards: [],
+      regeneratedCards: [],
+      bannedTermsByCard: [],
+      duplicateTitleCheck: {
+        pass: true,
+        duplicates: []
+      },
+      summaryWhyItMattersSimilarity: [],
+      cards: []
     }
   };
 }

@@ -83,6 +83,21 @@ export type HiddenEvidenceReason = {
   reason: string;
 };
 
+export type SupportingResourceRankingEntry = {
+  title: string;
+  url: string;
+  source: string;
+  dsSpecificityScore: number;
+  genericAIPenalty: number;
+  reason: string;
+};
+
+export type SupportingResourceRankingDebug = {
+  candidatesConsidered: number;
+  selected: SupportingResourceRankingEntry[];
+  rejected: SupportingResourceRankingEntry[];
+};
+
 export type EditorialThesisResult = {
   selectionResult: EditorialSelectionResult;
   leadSignal: CandidateSignal | null;
@@ -105,6 +120,7 @@ export type EditorialThesisResult = {
   hiddenEvidenceReasons: HiddenEvidenceReason[];
   renderedResourceCount: number;
   renderedResourceTitles: string[];
+  supportingResourceRanking: SupportingResourceRankingDebug;
 };
 
 type EvidenceCandidate = {
@@ -612,6 +628,41 @@ function surfaceSetFor(item: EvidenceCandidate): Set<string> {
   ]);
 }
 
+function dsSpecificityScore(item: EvidenceCandidate): number {
+  const text = `${item.candidate.title} ${item.candidate.source} ${item.candidate.url} ${item.candidate.snippet} ${item.candidate.cleanSummary} ${
+    item.candidate.directDesignSystemEvidence
+  }`.toLowerCase();
+  let score = 0;
+
+  const add = (points: number, pattern: RegExp) => {
+    if (pattern.test(text)) score += points;
+  };
+
+  score += item.decision.designSystemTopics.length * 6;
+  score += item.decision.workflowTopics.length * 5;
+  add(12, /design systems?|component librar|component api|component metadata|component manifest/i);
+  add(10, /storybook|figma|code connect|dev mode|design-to-code|design to code/i);
+  add(8, /design tokens?|documentation|accessibility|governance|\bqa\b|azure devops/i);
+  add(8, /mcp|ai agents?|internal agents?|copilot/i);
+  add(6, /react native|\breact\b|component generation|code generation/i);
+
+  return Math.min(60, score);
+}
+
+function genericAIPenalty(item: EvidenceCandidate): number {
+  const text = `${item.candidate.title} ${item.candidate.source} ${item.candidate.url} ${item.candidate.snippet} ${item.candidate.cleanSummary}`.toLowerCase();
+  const genericAi =
+    item.decision.topicGroup === "AI Research" ||
+    /\barxiv\b|llm|rag|benchmark|reasoning|agent/i.test(text);
+  const directDs =
+    item.decision.designSystemTopics.length > 0 ||
+    /figma|storybook|design systems?|design-to-code|design to code|component metadata|component api|design tokens?|accessibility|\bqa\b|documentation/i.test(
+      text
+    );
+
+  return genericAi && !directDs ? 45 : genericAi && item.decision.designSystemTopics.length === 0 ? 25 : 0;
+}
+
 function representativeScore(item: EvidenceCandidate, selected: EvidenceCandidate[]): {
   finalRepresentativeScore: number;
   reason: string;
@@ -619,6 +670,8 @@ function representativeScore(item: EvidenceCandidate, selected: EvidenceCandidat
   releaseFamilyPenalty: number;
   sameRepoPenalty: number;
   sameTitlePenalty: number;
+  dsSpecificityScore: number;
+  genericAIPenalty: number;
 } {
   const baseEvidenceWeight = item.evidence.editorialWeight ? item.evidence.editorialWeight * 20 : item.strength / 5;
   const rolePriority = representativeRolePriority(item);
@@ -637,12 +690,16 @@ function representativeScore(item: EvidenceCandidate, selected: EvidenceCandidat
   const releaseFamilyPenalty = releaseFamily && selectedReleaseFamilies.has(releaseFamily) ? 36 : 0;
   const sameRepoPenalty = selectedRepos.has(repoKeyFor(item.candidate)) ? 24 : 0;
   const sameTitlePenalty = selectedTitles.has(normalizedTitle(item.candidate.title)) ? 30 : 0;
+  const directDsScore = dsSpecificityScore(item);
+  const aiAdjacencyPenalty = genericAIPenalty(item);
   const finalRepresentativeScore = roundScore(
     baseEvidenceWeight +
       rolePriority +
       sourceDiversityBonus +
       workflowSurfaceDiversityBonus +
       designSystemSurfaceDiversityBonus -
+      aiAdjacencyPenalty +
+      directDsScore -
       redundancyPenalty -
       releaseFamilyPenalty -
       sameRepoPenalty -
@@ -651,13 +708,27 @@ function representativeScore(item: EvidenceCandidate, selected: EvidenceCandidat
 
   return {
     finalRepresentativeScore,
-    reason: `Representative score ${finalRepresentativeScore}: base ${roundScore(baseEvidenceWeight)}, role ${rolePriority}, source diversity ${sourceDiversityBonus}, workflow/design-surface diversity ${
+    reason: `Representative score ${finalRepresentativeScore}: base ${roundScore(baseEvidenceWeight)}, role ${rolePriority}, source diversity ${sourceDiversityBonus}, DS specificity ${directDsScore}, generic AI penalty ${aiAdjacencyPenalty}, workflow/design-surface diversity ${
       workflowSurfaceDiversityBonus + designSystemSurfaceDiversityBonus
     }, penalties ${redundancyPenalty + releaseFamilyPenalty + sameRepoPenalty + sameTitlePenalty}.`,
     redundancyPenalty,
     releaseFamilyPenalty,
     sameRepoPenalty,
-    sameTitlePenalty
+    sameTitlePenalty,
+    dsSpecificityScore: directDsScore,
+    genericAIPenalty: aiAdjacencyPenalty
+  };
+}
+
+function rankingEntryFor(item: EvidenceCandidate, selected: EvidenceCandidate[]): SupportingResourceRankingEntry {
+  const score = representativeScore(item, selected);
+  return {
+    title: item.candidate.title,
+    url: item.candidate.url,
+    source: item.candidate.source,
+    dsSpecificityScore: score.dsSpecificityScore,
+    genericAIPenalty: score.genericAIPenalty,
+    reason: score.reason
   };
 }
 
@@ -679,6 +750,7 @@ function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: st
   representatives: EvidenceCandidate[];
   representativeSelectionReasons: string[];
   hiddenEvidenceReasons: HiddenEvidenceReason[];
+  supportingResourceRanking: SupportingResourceRankingDebug;
 } {
   const lead = leadGroup.find((item) => item.candidate.url === leadUrl);
   if (!lead) {
@@ -688,13 +760,19 @@ function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: st
       hiddenEvidenceReasons: leadGroup.map((item) => ({
         resourceRef: item.evidence.resourceRef,
         reason: "lower representative score than selected item"
-      }))
+      })),
+      supportingResourceRanking: {
+        candidatesConsidered: leadGroup.length,
+        selected: [],
+        rejected: leadGroup.map((item) => rankingEntryFor(item, []))
+      }
     };
   }
 
   const representatives: EvidenceCandidate[] = [lead];
   const representativeSelectionReasons = [`Selected lead representative Evidence: "${lead.evidence.resourceRef.title}".`];
   const remaining = leadGroup.filter((item) => item.candidate.url !== leadUrl);
+  const rankingCandidates = [...remaining];
 
   while (representatives.length < 4 && remaining.length > 0) {
     const scored = remaining
@@ -715,11 +793,17 @@ function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: st
     resourceRef: item.evidence.resourceRef,
     reason: hiddenReasonFor(item, representatives)
   }));
+  const selectedSupporting = representatives.filter((item) => item.candidate.url !== leadUrl);
 
   return {
     representatives,
     representativeSelectionReasons,
-    hiddenEvidenceReasons
+    hiddenEvidenceReasons,
+    supportingResourceRanking: {
+      candidatesConsidered: rankingCandidates.length,
+      selected: selectedSupporting.map((item) => rankingEntryFor(item, representatives.filter((selectedItem) => selectedItem !== item))),
+      rejected: remaining.map((item) => rankingEntryFor(item, representatives))
+    }
   };
 }
 
@@ -834,7 +918,12 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
         hiddenEvidenceReasons: leadGroup.map((item) => ({
           resourceRef: item.evidence.resourceRef,
           reason: "lower representative score than selected item"
-        }))
+        })),
+        supportingResourceRanking: {
+          candidatesConsidered: 0,
+          selected: [],
+          rejected: []
+        }
       };
   const selectionResult = selectionFromLeadEvidence(baseSelection, leadGroup, leadSignal, representativeResult.representatives);
   const candidateSignals = leadSignal ? [leadSignal] : [];
@@ -888,6 +977,7 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
     hiddenEvidenceCount: representativeResult.hiddenEvidenceReasons.length,
     hiddenEvidenceReasons: representativeResult.hiddenEvidenceReasons,
     renderedResourceCount: selectionResult.selectedCandidates.length,
-    renderedResourceTitles: selectionResult.selectedCandidates.map((candidate) => candidate.title)
+    renderedResourceTitles: selectionResult.selectedCandidates.map((candidate) => candidate.title),
+    supportingResourceRanking: representativeResult.supportingResourceRanking
   };
 }

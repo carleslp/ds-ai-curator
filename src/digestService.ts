@@ -48,7 +48,8 @@ import type {
   EvidenceSetSummary,
   HiddenEvidenceReason,
   RejectedSignal,
-  SignalEvidence
+  SignalEvidence,
+  EditorialThesisResult
 } from "./editorialThesis.js";
 import {
   classifyCandidatesTopics,
@@ -157,6 +158,8 @@ type DailyDigestResult = {
   sectionContractViolations: string[];
   sectionContractWarnings: string[];
   editorialWritingLayer: EditorialWritingLayerDebug["editorialWritingLayer"];
+  resourceCardIntegrity: EditorialWritingLayerDebug["resourceCardIntegrity"];
+  supportingResourceRanking: EditorialThesisResult["supportingResourceRanking"];
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -176,6 +179,14 @@ const historyWindowMs = 30 * 24 * 60 * 60 * 1000;
 
 function thesisEngineEnabledFromEnv(): boolean {
   return process.env.THESIS_ENGINE === "true";
+}
+
+function emptySupportingResourceRanking(): EditorialThesisResult["supportingResourceRanking"] {
+  return {
+    candidatesConsidered: 0,
+    selected: [],
+    rejected: []
+  };
 }
 
 function emptyLedgerPreview(): ThesisLedgerPreview {
@@ -329,10 +340,10 @@ function candidateToResource(candidate: CandidateResource): Resource {
     source: candidate.source,
     type: "Article",
     published_date: candidate.published_date,
-    summary: cleanSummary || "Candidate collected from a curated source for Design System review.",
+    summary: cleanSummary || `${candidate.title} from ${candidate.source}.`,
     cleanSummary,
     design_system_angle:
-      "Selected from curated Design System, UI engineering, tooling, or research sources and ranked against the Figma-to-Storybook workflow.",
+      "Connects Design System, UI engineering, tooling, or research signals to the Figma-to-Storybook workflow.",
     why_it_matters_to_our_team: truncateText(
       "Worth reviewing because it connects to components, tokens, documentation, QA, governance, or AI-assisted delivery for an enterprise Design System team.",
       220
@@ -346,18 +357,19 @@ function candidateToResource(candidate: CandidateResource): Resource {
 
 function applySelectionMetadataToResource(resource: Resource, decision?: EditorialSelectionDecision): Resource {
   if (!decision) return resource;
-  const insight = truncateText(
-    `The important shift is this: ${decision.mondayMorningChange} ${decision.editorialValueReason}`,
-    280
-  );
 
   return {
     ...resource,
     original_title: resource.original_title ?? decision.title,
     editorialTitle: decision.editorialTitle,
     actionabilityScore: decision.actionabilityScore,
-    cleanSummary: insight,
-    summary: insight
+    affected_workflow_areas: Array.from(
+      new Set([...decision.designSystemTopics, ...decision.workflowTopics].filter(Boolean))
+    ).slice(0, 5),
+    impact_score: Math.max(
+      1,
+      Math.min(5, Math.round((decision.actionabilityScore + decision.designSystemTopics.length + decision.workflowTopics.length) / 3))
+    )
   };
 }
 
@@ -700,6 +712,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let hiddenEvidenceReasons: HiddenEvidenceReason[] = [];
   let renderedResourceCount = 0;
   let renderedResourceTitles: string[] = [];
+  let supportingResourceRanking = emptySupportingResourceRanking();
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
@@ -738,6 +751,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hiddenEvidenceReasons = thesisResult.hiddenEvidenceReasons;
       renderedResourceCount = thesisResult.renderedResourceCount;
       renderedResourceTitles = thesisResult.renderedResourceTitles;
+      supportingResourceRanking = thesisResult.supportingResourceRanking;
     } else {
       selectionResult = selectEditorialCandidates(candidatePool);
     }
@@ -788,6 +802,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(fallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
+        supportingResourceRanking,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -851,6 +866,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(editorialDigest, leadSignal),
         editorialWritingLayer: editorialAssembly.editorialWritingLayer,
+        resourceCardIntegrity: editorialAssembly.resourceCardIntegrity,
+        supportingResourceRanking,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -910,6 +927,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(fallbackDigest, leadSignal),
           editorialWritingLayer: fallbackAssembly.editorialWritingLayer,
+          resourceCardIntegrity: fallbackAssembly.resourceCardIntegrity,
+          supportingResourceRanking,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -959,6 +978,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(emptyDigest, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
+          supportingResourceRanking,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -1008,6 +1028,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
+          supportingResourceRanking,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1055,6 +1076,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
+        supportingResourceRanking,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1107,6 +1129,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emptyDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
+        supportingResourceRanking,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1156,6 +1179,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
+        supportingResourceRanking,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1204,6 +1228,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
       ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
       ...emptyEditorialWritingLayerDebug(),
+      supportingResourceRanking,
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,
