@@ -1,4 +1,5 @@
 import { cleanText, truncateText } from "./textUtils.js";
+import type { CandidateSignal } from "./editorialThesis.js";
 
 export type Resource = {
   title: string;
@@ -38,6 +39,7 @@ export type Digest = {
   suggestedExperiment: string;
   teamDiscussionQuestions: string[];
   nextWeekWatchlist: string[];
+  leadSignal?: CandidateSignal | null;
   resources: Resource[];
 };
 

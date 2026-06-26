@@ -30,6 +30,7 @@ import {
 } from "./rankAndSummarize.js";
 import { truncateText } from "./textUtils.js";
 import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
+import type { CandidateSignal, RejectedSignal } from "./editorialThesis.js";
 import {
   classifyCandidatesTopics,
   classifyCandidateTopics,
@@ -109,6 +110,10 @@ type DailyDigestResult = {
   thesisLedgerEnabled: boolean;
   thesisLedgerEntryCount: number;
   thesisLedgerPreview: ThesisLedgerPreview;
+  leadSignal: CandidateSignal | null;
+  candidateSignals: CandidateSignal[];
+  rejectedSignals: RejectedSignal[];
+  signalFormationReasons: string[];
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -392,6 +397,26 @@ function applyWorkflowImpactEditorsPick(digest: Digest, selectionResult: Editori
   };
 }
 
+function applyLeadSignal(digest: Digest, leadSignal: CandidateSignal | null): Digest {
+  if (!leadSignal) {
+    return digest;
+  }
+
+  return {
+    ...digest,
+    leadSignal
+  };
+}
+
+function stripLeadSignal(digest: Digest): Digest {
+  const { leadSignal: _leadSignal, ...digestWithoutLeadSignal } = digest;
+  return digestWithoutLeadSignal;
+}
+
+function digestForCurrentThesisFlag(digest: Digest, thesisEngineEnabled: boolean): Digest {
+  return thesisEngineEnabled ? digest : stripLeadSignal(digest);
+}
+
 function classifyTopicsFromResource(resource: Resource): Pick<TopicClassification, "aiTopics" | "designSystemTopics" | "workflowTopics"> {
   return classifyCandidateTopics({
     title: resource.title,
@@ -448,6 +473,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
   let sourceResults: SourceResult[] = [];
   let rejectedCandidates: EditorialSelectionDecision[] = [];
+  let leadSignal: CandidateSignal | null = null;
+  let candidateSignals: CandidateSignal[] = [];
+  let rejectedSignals: RejectedSignal[] = [];
+  let signalFormationReasons: string[] = [];
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
@@ -463,8 +492,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     candidatePool = filterRecentCandidates(candidates);
     console.log(`Step 3: Candidate normalization/recent-history pass completed (${candidatePool.length} candidates).`);
     console.log("Step 4: Topic classification and editorial scoring started.");
-    const selectCandidates = thesisEngineEnabled ? selectEditorialThesis : selectEditorialCandidates;
-    selectionResult = selectCandidates(candidatePool);
+    if (thesisEngineEnabled) {
+      const thesisResult = selectEditorialThesis(candidatePool);
+      selectionResult = thesisResult.selectionResult;
+      leadSignal = thesisResult.leadSignal;
+      candidateSignals = thesisResult.candidateSignals;
+      rejectedSignals = thesisResult.rejectedSignals;
+      signalFormationReasons = thesisResult.signalFormationReasons;
+    } else {
+      selectionResult = selectEditorialCandidates(candidatePool);
+    }
     rejectedCandidates = selectionResult.rejectedDecisions;
     console.log(
       `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
@@ -476,7 +513,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
     if (selectionResult.selectedCandidates.length === 0) {
       console.error("No candidates survived editorial selection; returning a clean empty-selection digest.");
-      const fallbackDigest = buildCandidateFallbackDigest(selectionResult);
+      const fallbackDigest = applyLeadSignal(buildCandidateFallbackDigest(selectionResult), leadSignal);
       if (fallbackDigest.resources.length > 0) {
         rememberDigest(fallbackDigest);
       }
@@ -489,6 +526,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
         thesisLedgerPreview,
+        leadSignal,
+        candidateSignals,
+        rejectedSignals,
+        signalFormationReasons,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -506,7 +547,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     try {
       console.log("Step 6: LLM ranking/summarization started.");
       const ranked = await rankWithAvailableProvider(selectionResult.selectedCandidates);
-      const editorialDigest = applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult);
+      const editorialDigest = applyLeadSignal(
+        applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
+        leadSignal
+      );
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
 
       cachedDigest = editorialDigest;
@@ -522,6 +566,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
         thesisLedgerPreview,
+        leadSignal,
+        candidateSignals,
+        rejectedSignals,
+        signalFormationReasons,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -537,7 +585,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       const fallbackReason = getErrorMessage(error);
       console.error(`LLM ranking failed: ${fallbackReason}`);
 
-      const fallbackDigest = buildCandidateFallbackDigest(selectionResult);
+      const fallbackDigest = applyLeadSignal(buildCandidateFallbackDigest(selectionResult), leadSignal);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
       if (fallbackDigest.resources.length > 0) {
@@ -551,6 +599,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           thesisLedgerEnabled,
           thesisLedgerEntryCount,
           thesisLedgerPreview,
+          leadSignal,
+          candidateSignals,
+          rejectedSignals,
+          signalFormationReasons,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -577,6 +629,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           thesisLedgerEnabled,
           thesisLedgerEntryCount,
           thesisLedgerPreview,
+          leadSignal,
+          candidateSignals,
+          rejectedSignals,
+          signalFormationReasons,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -593,8 +649,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
       if (cachedDigest) {
         console.error("Daily digest mode: cachedDigest.");
+        const cachedDigestForResponse = digestForCurrentThesisFlag(cachedDigest, thesisEngineEnabled);
         return {
-          digest: cachedDigest,
+          digest: cachedDigestForResponse,
           mode: "cachedDigest",
           hasOpenAIKey,
           hasGeminiKey,
@@ -602,14 +659,18 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           thesisLedgerEnabled,
           thesisLedgerEntryCount,
           thesisLedgerPreview,
+          leadSignal,
+          candidateSignals,
+          rejectedSignals,
+          signalFormationReasons,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
-          selectedResourceCount: cachedDigest.resources.length,
+          selectedResourceCount: cachedDigestForResponse.resources.length,
           fallbackReason,
           sourceResults,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
-          selectedPreview: previewResources(cachedDigest.resources, selectionResult.decisions),
+          selectedPreview: previewResources(cachedDigestForResponse.resources, selectionResult.decisions),
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
           editorialSelection: selectionResult.decisions
@@ -625,6 +686,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
         thesisLedgerPreview,
+        leadSignal,
+        candidateSignals,
+        rejectedSignals,
+        signalFormationReasons,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -654,6 +719,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
         thesisLedgerPreview,
+        leadSignal,
+        candidateSignals,
+        rejectedSignals,
+        signalFormationReasons,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -670,8 +739,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
     if (cachedDigest) {
       console.error("Daily digest mode: cachedDigest.");
+      const cachedDigestForResponse = digestForCurrentThesisFlag(cachedDigest, thesisEngineEnabled);
       return {
-        digest: cachedDigest,
+        digest: cachedDigestForResponse,
         mode: "cachedDigest",
         hasOpenAIKey,
         hasGeminiKey,
@@ -679,14 +749,18 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
         thesisLedgerPreview,
+        leadSignal,
+        candidateSignals,
+        rejectedSignals,
+        signalFormationReasons,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
-        selectedResourceCount: cachedDigest.resources.length,
+        selectedResourceCount: cachedDigestForResponse.resources.length,
         fallbackReason,
         sourceResults,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
-        selectedPreview: previewResources(cachedDigest.resources, selectionResult.decisions),
+        selectedPreview: previewResources(cachedDigestForResponse.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
         editorialSelection: selectionResult.decisions
@@ -703,6 +777,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       thesisLedgerEnabled,
       thesisLedgerEntryCount,
       thesisLedgerPreview,
+      leadSignal,
+      candidateSignals,
+      rejectedSignals,
+      signalFormationReasons,
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,

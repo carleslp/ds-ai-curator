@@ -75,7 +75,7 @@ const result = selectEditorialCandidates([
     directDesignSystemEvidence: ""
   })
 ]);
-const thesisResult = selectEditorialThesis([
+const thesisInput = [
   candidate({
     title: "Reasoning for Mobile User Experience with LLM Agents",
     url: "https://arxiv.org/abs/3333.3333",
@@ -124,10 +124,33 @@ const thesisResult = selectEditorialThesis([
     cleanSummary: "React frontend performance checklist for product engineering teams.",
     directDesignSystemEvidence: ""
   })
-]);
+];
+const thesisResult = selectEditorialThesis(thesisInput);
 
-assert.equal(selectEditorialThesis, selectEditorialCandidates, "M0 thesis selector must be the existing selector.");
-assert.deepEqual(thesisResult, result, "M0 thesis selector must return the same selection result.");
+assert.ok(thesisResult.leadSignal, "THESIS_ENGINE=true path should create a deterministic Lead Signal.");
+assert.equal(thesisResult.leadSignal.role, "lead");
+assert.ok(thesisResult.leadSignal.claim.length > 0, "Lead Signal should have a claim.");
+assert.ok(thesisResult.leadSignal.evidence.length >= 1, "Lead Signal should have at least one evidence item.");
+assert.equal(thesisResult.leadSignal.evidence[0].role, "lead");
+assert.equal(thesisResult.leadSignal.evidence[0].stance, "supports");
+assert.equal(
+  thesisResult.leadSignal.evidence[0].resourceRef.url,
+  thesisResult.leadSignal.resourceUrl,
+  "Lead Signal evidence should wrap the selected resource."
+);
+assert.equal(
+  thesisResult.selectionResult.selectedCandidates[0].url,
+  thesisResult.leadSignal.resourceUrl,
+  "THESIS_ENGINE=true should drive selection ordering through the Lead Signal."
+);
+assert.deepEqual(
+  new Set(thesisResult.selectionResult.selectedCandidates.map((candidate) => candidate.url)),
+  new Set(result.selectedCandidates.map((candidate) => candidate.url)),
+  "M2 should keep selected resources compatible with the existing selection path."
+);
+assert.ok(thesisResult.candidateSignals.length >= 1, "Qualified selected candidates should form candidate Signals.");
+assert.ok(thesisResult.rejectedSignals.length >= 1, "Rejected selection decisions should be exposed as rejected Signals.");
+assert.ok(thesisResult.signalFormationReasons.length >= 1, "Signal formation reasons should be exposed for debug.");
 
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0

@@ -11,6 +11,7 @@ type EditorialFields = Pick<
   | "suggestedExperiment"
   | "teamDiscussionQuestions"
   | "nextWeekWatchlist"
+  | "leadSignal"
 >;
 
 type DigestInput = Pick<Digest, "date" | "trend_summary" | "resources"> & Partial<EditorialFields>;
@@ -314,6 +315,7 @@ export function withEditorialSections(digest: DigestInput): Digest {
     suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(resources, editorsPick),
     teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(resources),
     nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(resources),
+    ...(digest.leadSignal !== undefined ? { leadSignal: digest.leadSignal } : {}),
     resources
   };
 }
