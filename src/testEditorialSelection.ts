@@ -131,6 +131,18 @@ assert.ok(thesisResult.leadSignal, "THESIS_ENGINE=true path should create a dete
 assert.equal(thesisResult.leadSignal.role, "lead");
 assert.ok(thesisResult.leadSignal.claim.length > 0, "Lead Signal should have a claim.");
 assert.ok(thesisResult.leadSignal.evidence.length >= 1, "Lead Signal should have at least one evidence item.");
+assert.equal(thesisResult.leadSignal.evidenceCount, thesisResult.leadSignal.evidence.length);
+assert.ok(thesisResult.leadSignal.evidenceCount >= 1, "Lead Signal evidenceCount should be at least one.");
+assert.equal(
+  thesisResult.leadSignal.evidence.filter((evidence) => evidence.role === "lead").length,
+  1,
+  "Lead Signal should have exactly one lead Evidence item."
+);
+assert.equal(
+  thesisResult.leadSignal.evidence.filter((evidence) => evidence.role === "lead" && evidence.stance === "supports").length,
+  1,
+  "Lead Signal should have exactly one lead supporting Evidence item."
+);
 assert.equal(thesisResult.leadSignal.evidence[0].role, "lead");
 assert.equal(thesisResult.leadSignal.evidence[0].stance, "supports");
 assert.equal(
@@ -138,6 +150,25 @@ assert.equal(
   thesisResult.leadSignal.resourceUrl,
   "Lead Signal evidence should wrap the selected resource."
 );
+const selectedCandidateUrls = new Set(thesisResult.selectionResult.selectedCandidates.map((candidate) => candidate.url));
+for (const evidence of thesisResult.leadSignal.evidence) {
+  assert.ok(evidence.stance, "Every Evidence item should have a stance.");
+  assert.ok(evidence.role, "Every Evidence item should have a role.");
+  assert.ok(evidence.contribution.length > 0, "Every Evidence item should have a contribution.");
+  assert.ok(evidence.independenceMarker.length > 0, "Every Evidence item should have an independence marker.");
+  assert.ok(evidence.resourceRef.title.length > 0, "Every Evidence item should reference a resource title.");
+  assert.ok(evidence.resourceRef.url.length > 0, "Every Evidence item should reference a resource URL.");
+  assert.ok(evidence.resourceRef.source.length > 0, "Every Evidence item should reference a resource source.");
+  assert.ok(selectedCandidateUrls.has(evidence.resourceRef.url), "Every Evidence item should reference a selected qualified candidate.");
+}
+assert.equal(
+  thesisResult.leadSignal.contradictingEvidenceCount,
+  thesisResult.leadSignal.evidence.filter((evidence) => evidence.stance === "contradicts").length,
+  "contradictingEvidenceCount should match the Evidence set."
+);
+assert.equal(thesisResult.evidenceSetSummary.evidenceCount, thesisResult.leadSignal.evidenceCount);
+assert.equal(thesisResult.degenerateEvidenceSet, thesisResult.leadSignal.evidenceCount === 1);
+assert.ok(thesisResult.evidenceFormationReasons.length >= 1, "Evidence formation reasons should be exposed for debug.");
 assert.equal(
   thesisResult.selectionResult.selectedCandidates[0].url,
   thesisResult.leadSignal.resourceUrl,
@@ -151,6 +182,21 @@ assert.deepEqual(
 assert.ok(thesisResult.candidateSignals.length >= 1, "Qualified selected candidates should form candidate Signals.");
 assert.ok(thesisResult.rejectedSignals.length >= 1, "Rejected selection decisions should be exposed as rejected Signals.");
 assert.ok(thesisResult.signalFormationReasons.length >= 1, "Signal formation reasons should be exposed for debug.");
+
+const degenerateThesisResult = selectEditorialThesis([
+  candidate({
+    title: "Storybook AI MCP component metadata for DS agents",
+    url: "https://storybook.js.org/releases/ai-mcp",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    cleanSummary: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    directDesignSystemEvidence: "Storybook workflow anchor evidence in title/snippet."
+  })
+]);
+
+assert.ok(degenerateThesisResult.leadSignal, "Single qualified candidate should still create a Lead Signal.");
+assert.equal(degenerateThesisResult.leadSignal.evidenceCount, 1);
+assert.equal(degenerateThesisResult.degenerateEvidenceSet, true);
 
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0

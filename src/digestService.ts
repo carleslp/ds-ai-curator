@@ -30,7 +30,7 @@ import {
 } from "./rankAndSummarize.js";
 import { truncateText } from "./textUtils.js";
 import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
-import type { CandidateSignal, RejectedSignal } from "./editorialThesis.js";
+import type { CandidateSignal, EvidenceSetSummary, RejectedSignal } from "./editorialThesis.js";
 import {
   classifyCandidatesTopics,
   classifyCandidateTopics,
@@ -114,6 +114,9 @@ type DailyDigestResult = {
   candidateSignals: CandidateSignal[];
   rejectedSignals: RejectedSignal[];
   signalFormationReasons: string[];
+  evidenceSetSummary: EvidenceSetSummary;
+  evidenceFormationReasons: string[];
+  degenerateEvidenceSet: boolean;
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -142,6 +145,16 @@ function emptyLedgerPreview(): ThesisLedgerPreview {
     latestClaimAsPublished: null,
     latestThemeAnchor: null,
     latestOutcome: null
+  };
+}
+
+function emptyEvidenceSetSummary(): EvidenceSetSummary {
+  return {
+    evidenceCount: 0,
+    supportingEvidenceCount: 0,
+    contradictingEvidenceCount: 0,
+    leadEvidenceTitle: "",
+    independenceMarkers: []
   };
 }
 
@@ -477,6 +490,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let candidateSignals: CandidateSignal[] = [];
   let rejectedSignals: RejectedSignal[] = [];
   let signalFormationReasons: string[] = [];
+  let evidenceSetSummary: EvidenceSetSummary = emptyEvidenceSetSummary();
+  let evidenceFormationReasons: string[] = [];
+  let degenerateEvidenceSet = false;
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
@@ -499,6 +515,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       candidateSignals = thesisResult.candidateSignals;
       rejectedSignals = thesisResult.rejectedSignals;
       signalFormationReasons = thesisResult.signalFormationReasons;
+      evidenceSetSummary = thesisResult.evidenceSetSummary;
+      evidenceFormationReasons = thesisResult.evidenceFormationReasons;
+      degenerateEvidenceSet = thesisResult.degenerateEvidenceSet;
     } else {
       selectionResult = selectEditorialCandidates(candidatePool);
     }
@@ -530,6 +549,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateSignals,
         rejectedSignals,
         signalFormationReasons,
+        evidenceSetSummary,
+        evidenceFormationReasons,
+        degenerateEvidenceSet,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -570,6 +592,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateSignals,
         rejectedSignals,
         signalFormationReasons,
+        evidenceSetSummary,
+        evidenceFormationReasons,
+        degenerateEvidenceSet,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -603,6 +628,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           candidateSignals,
           rejectedSignals,
           signalFormationReasons,
+          evidenceSetSummary,
+          evidenceFormationReasons,
+          degenerateEvidenceSet,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -633,6 +661,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           candidateSignals,
           rejectedSignals,
           signalFormationReasons,
+          evidenceSetSummary,
+          evidenceFormationReasons,
+          degenerateEvidenceSet,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -663,6 +694,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           candidateSignals,
           rejectedSignals,
           signalFormationReasons,
+          evidenceSetSummary,
+          evidenceFormationReasons,
+          degenerateEvidenceSet,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -690,6 +724,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateSignals,
         rejectedSignals,
         signalFormationReasons,
+        evidenceSetSummary,
+        evidenceFormationReasons,
+        degenerateEvidenceSet,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -723,6 +760,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateSignals,
         rejectedSignals,
         signalFormationReasons,
+        evidenceSetSummary,
+        evidenceFormationReasons,
+        degenerateEvidenceSet,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -753,6 +793,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         candidateSignals,
         rejectedSignals,
         signalFormationReasons,
+        evidenceSetSummary,
+        evidenceFormationReasons,
+        degenerateEvidenceSet,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -781,6 +824,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       candidateSignals,
       rejectedSignals,
       signalFormationReasons,
+      evidenceSetSummary,
+      evidenceFormationReasons,
+      degenerateEvidenceSet,
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,
