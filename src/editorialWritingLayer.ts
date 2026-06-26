@@ -276,38 +276,38 @@ function fallbackSummaryFor(resource: Resource): string {
   const title = cleanResourceTitle(resource.title) || "This item";
   const source = cleanText(resource.source) || "the source";
   const areas = workflowAreasFor(resource);
-  const areaPhrase = areas.length > 0 ? ` It connects to ${areas.join(", ")} workflows.` : "";
-  return truncateText(`Covers ${title} from ${source}.${areaPhrase}`, 280);
+  const areaPhrase = areas.length > 0 ? ` The piece touches ${areas.join(", ")}.` : "";
+  return truncateText(`${title} from ${source}.${areaPhrase}`, 280);
 }
 
 function fallbackWhyItMattersFor(resource: Resource): string {
   const areas = workflowAreasFor(resource);
   if (areas.includes("Storybook")) {
-    return "This matters because AI-assisted Design System work needs component metadata, documentation, and examples that tools can read reliably.";
+    return "Component metadata is becoming agent input, not just documentation support.";
   }
   if (areas.includes("Figma") || areas.includes("Design-to-Code")) {
-    return "This matters because Figma metadata and design-to-code behavior shape how much review our team needs before generated UI can reuse system components.";
+    return "Figma metadata now shapes how much review generated UI needs before it can reuse system components.";
   }
   if (areas.includes("Design Tokens")) {
-    return "This matters because token intent has to be explicit enough for AI-assisted changes to preserve semantics, not just token names.";
+    return "Token intent has to be explicit enough for AI-assisted changes to preserve semantics, not just names.";
   }
   if (areas.includes("Accessibility") || areas.includes("QA")) {
-    return "This matters because automated review only helps if it maps back to our accessibility, QA, and component ownership rules.";
+    return "Automated review only earns trust when it maps back to accessibility, QA, and ownership rules.";
   }
   if (areas.includes("Documentation") || areas.includes("AI Agents")) {
-    return "This matters because internal agents need trustworthy system context before they can propose or validate Design System changes.";
+    return "Internal agents need trustworthy system context before they can propose or validate changes.";
   }
 
-  return "This matters because it points to how mature Design System workflows may need clearer context for AI-assisted implementation and review.";
+  return "The practical implication is clearer system context for AI-assisted implementation and review.";
 }
 
 function fallbackImpactFor(resource: Resource): string {
   const areas = workflowAreasFor(resource);
   if (areas.length > 0) {
-    return `Gives the team a concrete reason to review how ${areas.slice(0, 3).join(", ")} guidance is exposed to AI-assisted tools.`;
+    return `Review how ${areas.slice(0, 3).join(", ")} guidance is exposed to AI-assisted tools.`;
   }
 
-  return "Gives the team a reason to check whether existing system guidance is explicit enough for AI-assisted delivery.";
+  return "Check whether existing system guidance is explicit enough for AI-assisted delivery.";
 }
 
 function fallbackIgnoreRiskFor(resource: Resource): string {
@@ -346,6 +346,11 @@ function safeReaderCopy(value: string | undefined, fallback: string, maxLength: 
 
 function preview(value: string): string {
   return truncateText(cleanText(value), 220);
+}
+
+function sentenceCase(value: string): string {
+  const text = safeText(value);
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : text;
 }
 
 function sectionText(sections: DraftSections, section: string): string {
@@ -406,7 +411,7 @@ export function writeSignalSection(context: SignalContext): string {
   const theme = workflowPhrase(context.themeAnchor);
 
   return safeText(
-    `This week’s strongest shift is that AI-assisted Design System work is becoming less constrained by interface generation and more constrained by the structured knowledge tools can safely consume. The important work is moving toward ${theme || "metadata, documentation quality, review rules, and system context"} that agents can understand without guessing.`
+    `The shift is no longer about generating more interface. It is about the ${theme || "metadata, documentation quality, review rules, and system context"} AI tools need before they can touch a mature Design System safely.`
   );
 }
 
@@ -418,8 +423,8 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
   const source = context.sourceMetadata?.source || safeResource.source;
   const contribution = safeText(context.contribution || safeResource.cleanSummary || safeResource.summary);
   const cleanSummary = contribution
-    ? `${title} is useful because it shows ${truncateText(contribution, 190)}`
-    : `${title} is useful because it makes the shift concrete for mature Design System work.`;
+    ? `${title} makes the claim concrete: ${truncateText(contribution, 190)}`
+    : `${title} gives the week’s claim a concrete Design System surface.`;
   const summaryCopy = safeReaderCopy(cleanSummary, fallbackSummaryFor({ ...safeResource, title, source }), 220);
   const whyCopy = safeReaderCopy(
     safeResource.why_it_matters_to_our_team,
@@ -427,7 +432,7 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
     180
   );
   const impactCopy = safeReaderCopy(
-    `${source} shows the workflow moving from generation toward verification and reusable system context.`,
+    `${source} points the workflow away from raw generation and toward verification, metadata, and reusable system context.`,
     fallbackImpactFor({ ...safeResource, title, source }),
     180
   );
@@ -439,7 +444,7 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
     cleanSummary: summaryCopy.value,
     summary: summaryCopy.value,
     why_it_matters_to_our_team: whyCopy.value,
-    why_selected: safeText(`${title} is the clearest concrete example of this week’s shift.`),
+    why_selected: safeText(`${title} carries the clearest proof of this week’s claim.`),
     expected_impact_on_workflow: impactCopy.value
   };
 }
@@ -448,12 +453,15 @@ export function writeSupportingSignalsSection(context: SupportingSignalsContext)
   const contributions = context.contributions.map(safeText).filter(Boolean);
   if (contributions.length === 0) {
     return [
-      "Related signals were too thin to add much beyond the main shift.",
-      "The practical pattern is still moving toward clearer system context for AI-assisted work."
+      "The secondary signal is thin today.",
+      "The useful pattern remains clearer system context for AI-assisted work."
     ];
   }
 
-  return contributions.slice(0, 3).map((contribution) => safeText(truncateText(contribution, 150)));
+  return contributions.slice(0, 3).map((contribution, index) => {
+    const prefixes = ["One pressure point:", "A second angle:", "The practical edge:"];
+    return safeText(truncateText(`${prefixes[index] ?? "Another angle:"} ${contribution}`, 170));
+  });
 }
 
 export function writeSuggestedExperimentSection(context: MoveContext): string {
@@ -462,16 +470,16 @@ export function writeSuggestedExperimentSection(context: MoveContext): string {
   const precondition = safeText(context.preconditions[0] || "one high-use component");
 
   return safeText(
-    `Because ${surface} now depends on clearer system assumptions, ${truncateText(move, 145)} Start with ${precondition} and capture one gap an internal agent should not have to infer.`
+    `Because ${surface} now has higher system risk, start with ${precondition}. ${sentenceCase(truncateText(move, 145))} Capture one rule an internal agent should not have to infer.`
   );
 }
 
 export function writeQuestionsSection(context: ImpactContext): string[] {
   const surface = safeText(context.workflowSurface[0] || "our component workflow");
   return [
-    `Where does ${surface} still depend on human interpretation instead of explicit system rules?`,
-    "Which documentation or ownership gap would make an internal agent unreliable?",
-    "What governance or accessibility assumption should be made visible before AI-assisted changes ship?"
+    `Which part of ${surface} still depends on interpretation rather than an explicit rule?`,
+    "Where would an internal agent make a confident but wrong assumption?",
+    "Which governance or accessibility rule should block AI-assisted changes before release?"
   ];
 }
 
@@ -483,8 +491,8 @@ export function writeWatchlistSection(context: HorizonContext): string[] {
 
   return [
     "Watch for tools that expose component metadata directly to AI agents.",
-    "Track whether design-to-code work explains review quality and component reuse.",
-    "Look for QA or accessibility automation that connects back to ownership and delivery workflows."
+    "Track design-to-code releases that disclose review quality and component reuse.",
+    "Look for QA or accessibility automation tied to ownership, documentation, and delivery workflows."
   ];
 }
 

@@ -70,35 +70,35 @@ function renderResourceCard(resource: Resource): string {
   const impactScore = resource.impact_score ? `${resource.impact_score}/5` : "";
 
   return `
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #ede9f3;border-radius:14px;">
-  <tr>
-    <td style="padding:20px;">
+<table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="height:100%;background:#ffffff;border:1px solid #ede9f3;border-radius:14px;table-layout:fixed;">
+  <tr height="100%">
+    <td height="100%" valign="top" style="height:100%;padding:20px 20px 12px;">
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
         <tr>
-          <td>
+          <td valign="top">
             <span style="font-size:9px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#ede9fe;color:#6d28d9;">
               ${escapeHtml(cleanText(resource.type))}
             </span>
           </td>
-          <td style="text-align:right;font-size:10px;color:#9ca3af;white-space:nowrap;">
+          <td valign="top" style="text-align:right;font-size:10px;color:#9ca3af;white-space:nowrap;">
             ${escapeHtml(date)}
           </td>
         </tr>
       </table>
 
-      <div style="font-size:16px;font-weight:800;color:#111827;margin-bottom:6px;line-height:1.35;">
+      <div style="font-size:16px;font-weight:800;color:#111827;margin-bottom:6px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:44px;">
         <a href="${safeUrl(resource.url)}" style="color:#111827;text-decoration:none;">
           ${escapeHtml(displayTitle)}
         </a>
       </div>
 
-      <div style="font-size:13px;color:#4b5563;line-height:1.65;margin-bottom:10px;">
+      <div style="font-size:13px;color:#4b5563;line-height:1.65;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;max-height:86px;">
         ${escapeHtml(summary)}
       </div>
 
       ${
         whyItMatters
-          ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;">
+          ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:56px;">
         <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
       </div>`
           : ""
@@ -106,7 +106,7 @@ function renderResourceCard(resource: Resource): string {
 
       ${
         impactScore || affectedAreas
-          ? `<div style="font-size:11px;color:#4b5563;line-height:1.55;margin-bottom:10px;padding:9px 11px;background:#fafafa;border:1px solid #f3f4f6;border-radius:8px;">
+          ? `<div style="font-size:11px;color:#4b5563;line-height:1.55;margin-bottom:10px;padding:9px 11px;background:#fafafa;border:1px solid #f3f4f6;border-radius:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:35px;">
         <strong style="color:#111827;">Impact on our team:</strong> ${escapeHtml(impactScore)}${impactScore && affectedAreas ? " · " : ""}${escapeHtml(affectedAreas)}
       </div>`
           : ""
@@ -114,18 +114,21 @@ function renderResourceCard(resource: Resource): string {
 
       ${
         ignoreRisk
-          ? `<div style="font-size:11px;color:#6b21a8;line-height:1.55;margin-bottom:12px;">
+          ? `<div style="font-size:11px;color:#6b21a8;line-height:1.55;margin-bottom:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:35px;">
         <strong>If we ignore this:</strong> ${escapeHtml(ignoreRisk)}
       </div>`
           : ""
       }
-
+    </td>
+  </tr>
+  <tr>
+    <td valign="bottom" style="padding:0 20px 20px;">
       <table width="100%" cellpadding="0" cellspacing="0" border="0">
         <tr>
-          <td style="font-size:11px;color:#9ca3af;font-style:italic;">
+          <td valign="bottom" style="font-size:11px;color:#9ca3af;font-style:italic;line-height:1.4;">
             ${escapeHtml(cleanText(resource.source))}
           </td>
-          <td style="text-align:right;">
+          <td valign="bottom" style="text-align:right;white-space:nowrap;">
             <a href="${safeUrl(resource.url)}" style="font-size:11px;color:#7c3aed;font-weight:800;text-decoration:none;">
               Read →
             </a>
@@ -146,10 +149,10 @@ function renderResourceGrid(resources: Resource[]): string {
 
     rows.push(`
                       <tr>
-                        <td class="resource-column" width="50%" valign="top" style="width:50%;padding:0 10px 20px 0;">
+                        <td class="resource-column" width="50%" height="100%" valign="top" style="width:50%;height:100%;padding:0 10px 20px 0;">
                           ${renderResourceCard(left)}
                         </td>
-                        <td class="resource-column" width="50%" valign="top" style="width:50%;padding:0 0 20px 10px;">
+                        <td class="resource-column" width="50%" height="100%" valign="top" style="width:50%;height:100%;padding:0 0 20px 10px;">
                           ${right ? renderResourceCard(right) : ""}
                         </td>
                       </tr>`);
@@ -279,10 +282,12 @@ function renderSupportingSignals(signals: string[]): string {
                           .map(
                             (signal, index) => `
                         <td class="resource-column" width="33.33%" valign="top" style="width:33.33%;padding:${index === 0 ? "0 10px 0 0" : index === cleanSignals.length - 1 ? "0 0 0 10px" : "0 10px"};">
-                          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fbfaff;border:1px solid #ede9fe;border-radius:12px;">
-                            <tr>
-                              <td style="padding:14px;font-size:12px;color:#374151;line-height:1.55;">
-                                ${escapeHtml(signal)}
+                          <table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="height:100%;background:#fbfaff;border:1px solid #ede9fe;border-radius:12px;table-layout:fixed;">
+                            <tr height="100%">
+                              <td height="100%" valign="top" style="height:100%;padding:14px;font-size:12px;color:#374151;line-height:1.55;">
+                                <div style="display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;max-height:75px;">
+                                  ${escapeHtml(signal)}
+                                </div>
                               </td>
                             </tr>
                           </table>
@@ -298,7 +303,7 @@ function renderResourcesSection(resources: Resource[], resourceLabel: string): s
 
   return `
                     ${renderSectionLabel(`${resourceLabel} · supporting resources`)}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;table-layout:fixed;">
                       ${renderResourceGrid(resources)}
                     </table>`;
 }
@@ -326,13 +331,13 @@ function renderTeamQuestions(teamDiscussionQuestions: string[]): string {
 
   return `
                     ${renderSectionLabel("Questions for our Team")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;table-layout:fixed;">
                       <tr>
                         <td style="padding:18px;background:#f9fafb;border:1px solid #f3f4f6;border-radius:14px;">
                           ${questions
                             .map(
-                              (question) => `
-                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:8px;">
+                              (question, index) => `
+                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:${index === questions.length - 1 ? "0" : "8px"};">
                             ${escapeHtml(question)}
                           </div>`
                             )
@@ -353,8 +358,8 @@ function renderNextWeekWatchlist(nextWeekWatchlist: string[]): string {
                         <td style="padding:18px;background:#fbfaff;border:1px solid #ede9fe;border-radius:14px;">
                           ${items
                             .map(
-                              (item) => `
-                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:8px;">
+                              (item, index) => `
+                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:${index === items.length - 1 ? "0" : "8px"};">
                             ${escapeHtml(item)}
                           </div>`
                             )
@@ -445,12 +450,12 @@ export function renderEmail(digest: Digest): string {
               <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 18px 18px;">
                 <tr>
                   <td class="email-padding" style="padding:20px 40px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
                       <tr>
-                        <td style="font-size:11px;color:#9ca3af;">
+                        <td valign="middle" style="font-size:11px;color:#9ca3af;line-height:1.45;">
                           Curated by <strong style="color:#6b7280;">DS × AI Curator</strong>
                         </td>
-                        <td style="text-align:right;font-size:11px;color:#7c3aed;font-weight:700;">
+                        <td valign="middle" style="text-align:right;font-size:11px;color:#7c3aed;font-weight:700;line-height:1.45;">
                           Built for better system thinking
                         </td>
                       </tr>

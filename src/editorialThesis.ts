@@ -304,22 +304,22 @@ function evidenceContribution(candidate: CandidateResource, decision: EditorialS
 
   if (decision.topicGroup === "Storybook") {
     if (text.includes("preset") || text.includes("metadata")) {
-      return "Shows Storybook exposing AI help through preset or component metadata, turning documentation structure into something agents can consume.";
+      return "Reveals Storybook turning preset and component metadata into context agents can consume.";
     }
 
     if (text.includes("cli") || text.includes("mcp")) {
-      return "Shows the AI CLI/MCP path moving from experiment toward a repeatable Storybook workflow for component-aware assistance.";
+      return "Marks the AI CLI/MCP path moving from experiment toward repeatable component-aware assistance.";
     }
 
     if (text.includes("manifest") || text.includes("docgen")) {
-      return "Shows component manifest or docgen work becoming part of the AI-readable component surface.";
+      return "Places manifest and docgen work inside the AI-readable component surface.";
     }
 
-    return "Shows that Storybook evidence can become more machine-readable for AI-assisted component documentation, review, and agent consumption.";
+    return "Positions Storybook documentation as machine-readable context for component review and agent consumption.";
   }
 
   if (decision.topicGroup === "Figma") {
-    return "Shows how Figma metadata and design-to-code workflows can affect whether AI-generated implementation respects component intent.";
+    return "Reveals how Figma metadata affects whether design-to-code output respects component intent.";
   }
 
   if (decision.topicGroup === "AI Research") {
@@ -331,7 +331,7 @@ function evidenceContribution(candidate: CandidateResource, decision: EditorialS
   }
 
   if (decision.topicGroup === "Tooling") {
-    return "Shows a practical tooling path for turning Design System knowledge into repeatable AI-assisted implementation or review behavior.";
+    return "Maps a practical tooling path from Design System knowledge to repeatable AI-assisted implementation or review.";
   }
 
   if (evidence) {
