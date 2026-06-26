@@ -63,6 +63,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
             tensionHonesty: result.tensionHonesty,
             sectionContractViolations: result.sectionContractViolations,
             sectionContractWarnings: result.sectionContractWarnings,
+            editorialWritingLayer: result.editorialWritingLayer,
             candidateCount: result.candidateCount,
             filteredCandidateCount: result.filteredCandidateCount,
             selectedResourceCount: result.selectedResourceCount,

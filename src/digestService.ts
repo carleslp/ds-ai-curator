@@ -17,6 +17,11 @@ import {
 } from "./editorialContexts.js";
 import { validateSectionContracts, type SectionContractsDebug } from "./editorialContracts.js";
 import {
+  applyEditorialWritingLayer,
+  emptyEditorialWritingLayerDebug,
+  type EditorialWritingLayerDebug
+} from "./editorialWritingLayer.js";
+import {
   selectEditorialCandidates,
   type EditorialSelectionDecision,
   type EditorialSelectionResult,
@@ -151,6 +156,7 @@ type DailyDigestResult = {
   tensionHonesty: SectionContractsDebug["tensionHonesty"];
   sectionContractViolations: string[];
   sectionContractWarnings: string[];
+  editorialWritingLayer: EditorialWritingLayerDebug["editorialWritingLayer"];
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -515,9 +521,12 @@ function applyRepresentativeRenderingAssembly(
   representativeLeadEvidence: SignalEvidence | null,
   representativeSupportingEvidence: SignalEvidence[],
   leadSignal: CandidateSignal | null
-): Digest {
+): { digest: Digest } & EditorialWritingLayerDebug {
   if (!representativeLeadEvidence) {
-    return digest;
+    return {
+      digest,
+      ...emptyEditorialWritingLayerDebug()
+    };
   }
 
   const decisionMap = decisionsByUrl(selectionResult.selectedDecisions);
@@ -581,7 +590,7 @@ function applyRepresentativeRenderingAssembly(
     resources: supportingResources
   });
 
-  return withEditorialSections(
+  const assembledDigest = withEditorialSections(
     {
       date: digest.date,
       trend_summary: digest.trend_summary,
@@ -591,6 +600,8 @@ function applyRepresentativeRenderingAssembly(
     },
     contexts
   );
+
+  return applyEditorialWritingLayer(assembledDigest, contexts, leadSignal);
 }
 
 function applyLeadSignal(digest: Digest, leadSignal: CandidateSignal | null): Digest {
@@ -776,6 +787,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(fallbackDigest, leadSignal),
+        ...emptyEditorialWritingLayerDebug(),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -793,16 +805,14 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     try {
       console.log("Step 6: LLM ranking/summarization started.");
       const ranked = await rankWithAvailableProvider(selectionResult.selectedCandidates);
-      const editorialDigest = applyLeadSignal(
-        applyRepresentativeRenderingAssembly(
-          applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
-          selectionResult,
-          representativeLeadEvidence,
-          representativeSupportingEvidence,
-          leadSignal
-        ),
+      const editorialAssembly = applyRepresentativeRenderingAssembly(
+        applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
+        selectionResult,
+        representativeLeadEvidence,
+        representativeSupportingEvidence,
         leadSignal
       );
+      const editorialDigest = applyLeadSignal(editorialAssembly.digest, leadSignal);
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
 
       cachedDigest = editorialDigest;
@@ -840,6 +850,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles: editorialDigest.resources.map((resource) => resource.title),
         ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(editorialDigest, leadSignal),
+        editorialWritingLayer: editorialAssembly.editorialWritingLayer,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -855,16 +866,14 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       const fallbackReason = getErrorMessage(error);
       console.error(`LLM ranking failed: ${fallbackReason}`);
 
-      const fallbackDigest = applyLeadSignal(
-        applyRepresentativeRenderingAssembly(
-          buildCandidateFallbackDigest(selectionResult),
-          selectionResult,
-          representativeLeadEvidence,
-          representativeSupportingEvidence,
-          leadSignal
-        ),
+      const fallbackAssembly = applyRepresentativeRenderingAssembly(
+        buildCandidateFallbackDigest(selectionResult),
+        selectionResult,
+        representativeLeadEvidence,
+        representativeSupportingEvidence,
         leadSignal
       );
+      const fallbackDigest = applyLeadSignal(fallbackAssembly.digest, leadSignal);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
       if (hasRenderableDigestContent(fallbackDigest)) {
@@ -900,6 +909,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceTitles: fallbackDigest.resources.map((resource) => resource.title),
           ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(fallbackDigest, leadSignal),
+          editorialWritingLayer: fallbackAssembly.editorialWritingLayer,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -948,6 +958,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceTitles,
           ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(emptyDigest, leadSignal),
+          ...emptyEditorialWritingLayerDebug(),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -996,6 +1007,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceTitles,
           ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
+          ...emptyEditorialWritingLayerDebug(),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1042,6 +1054,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
+        ...emptyEditorialWritingLayerDebug(),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1093,6 +1106,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emptyDigest, leadSignal),
+        ...emptyEditorialWritingLayerDebug(),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1141,6 +1155,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
+        ...emptyEditorialWritingLayerDebug(),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1188,6 +1203,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       renderedResourceTitles,
       ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
       ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
+      ...emptyEditorialWritingLayerDebug(),
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,
