@@ -175,9 +175,7 @@ function sectionResult(text: string, ownershipPresencePass: boolean, notes: stri
 
 function editorsPickText(resource: Resource | null): string {
   if (!resource) return "";
-  return `${resource.title} ${resource.source} ${resource.cleanSummary ?? ""} ${resource.summary} ${resource.why_selected ?? ""} ${
-    resource.expected_impact_on_workflow ?? ""
-  }`;
+  return `${resource.cleanSummary ?? ""} ${resource.summary} ${resource.why_selected ?? ""} ${resource.expected_impact_on_workflow ?? ""}`;
 }
 
 function questionsText(questions: string[]): string {

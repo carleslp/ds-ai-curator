@@ -89,6 +89,21 @@ function safeText(value: string): string {
     .trim();
 }
 
+function cleanResourceTitle(value: string): string {
+  return cleanText(value)
+    .replace(/\s+/g, " ")
+    .replace(/^[:\-\s]+|[:\-\s]+$/g, "")
+    .trim();
+}
+
+function normalizedTitle(value: string): string {
+  return cleanResourceTitle(value)
+    .toLowerCase()
+    .replace(/\bv?\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?\b/g, "version")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 function preview(value: string): string {
   return truncateText(cleanText(value), 220);
 }
@@ -148,11 +163,10 @@ function workflowPhrase(value: string | undefined): string {
 }
 
 export function writeSignalSection(context: SignalContext): string {
-  const whyNow = workflowPhrase(context.whyNow);
   const theme = workflowPhrase(context.themeAnchor);
 
   return safeText(
-    `This week’s strongest shift is that AI-assisted Design System work is becoming less constrained by interface generation and more constrained by the structured knowledge tools can safely consume. The important work is moving toward ${theme || "metadata, documentation quality, review rules, and system context"} because ${whyNow}`
+    `This week’s strongest shift is that AI-assisted Design System work is becoming less constrained by interface generation and more constrained by the structured knowledge tools can safely consume. The important work is moving toward ${theme || "metadata, documentation quality, review rules, and system context"} that agents can understand without guessing.`
   );
 }
 
@@ -224,7 +238,8 @@ export function writeWatchlistSection(context: HorizonContext): string[] {
 function sanitizeResource(resource: Resource): Resource {
   return {
     ...resource,
-    editorialTitle: resource.editorialTitle ? safeText(resource.editorialTitle) : resource.editorialTitle,
+    title: cleanResourceTitle(resource.title),
+    editorialTitle: undefined,
     cleanSummary: resource.cleanSummary ? safeText(resource.cleanSummary) : resource.cleanSummary,
     summary: safeText(resource.summary),
     why_selected: resource.why_selected ? safeText(resource.why_selected) : resource.why_selected,
@@ -236,6 +251,27 @@ function sanitizeResource(resource: Resource): Resource {
       : resource.why_it_matters_to_our_team,
     ignore_risk: resource.ignore_risk ? safeText(resource.ignore_risk) : resource.ignore_risk
   };
+}
+
+function dedupeSupportingResources(resources: Resource[]): Resource[] {
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+  const deduped: Resource[] = [];
+
+  for (const resource of resources) {
+    const urlKey = resource.url.replace(/[#?].*$/, "").replace(/\/$/, "").toLowerCase();
+    const titleKey = normalizedTitle(resource.title);
+
+    if (seenUrls.has(urlKey) || seenTitles.has(titleKey)) {
+      continue;
+    }
+
+    deduped.push(resource);
+    seenUrls.add(urlKey);
+    seenTitles.add(titleKey);
+  }
+
+  return deduped;
 }
 
 function draftFromDigest(digest: Digest): DraftSections {
@@ -258,7 +294,7 @@ function buildFallbackSections(digest: Digest, contexts: EditorialContexts): Dra
     suggestedExperiment: writeSuggestedExperimentSection(contexts.moveContext),
     teamDiscussionQuestions: writeQuestionsSection(contexts.impactContext),
     nextWeekWatchlist: writeWatchlistSection(contexts.horizonContext),
-    resources: digest.resources.map(sanitizeResource)
+    resources: dedupeSupportingResources(digest.resources.map(sanitizeResource))
   };
 }
 
@@ -277,7 +313,7 @@ export function applyEditorialWritingLayer(
     suggestedExperiment: safeText(originalSections.suggestedExperiment),
     teamDiscussionQuestions: originalSections.teamDiscussionQuestions.map(safeText),
     nextWeekWatchlist: originalSections.nextWeekWatchlist.map(safeText),
-    resources: originalSections.resources.map(sanitizeResource)
+    resources: dedupeSupportingResources(originalSections.resources.map(sanitizeResource))
   };
   const rewrittenSections: string[] = [];
   const rewriteReasons: string[] = [];
