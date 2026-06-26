@@ -11,6 +11,11 @@ import {
 } from "./editorialEngine.js";
 import { withEditorialSections } from "./editorial.js";
 import {
+  buildEditorialContexts,
+  createEditorialContextDebug,
+  type EditorialContextDebug
+} from "./editorialContexts.js";
+import {
   selectEditorialCandidates,
   type EditorialSelectionDecision,
   type EditorialSelectionResult,
@@ -138,6 +143,8 @@ type DailyDigestResult = {
   hiddenEvidenceReasons: HiddenEvidenceReason[];
   renderedResourceCount: number;
   renderedResourceTitles: string[];
+  editorialContexts: EditorialContextDebug["editorialContexts"];
+  contextBoundaryViolations: string[];
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -277,6 +284,23 @@ function rememberDigest(digest: Digest): void {
 
 function hasRenderableDigestContent(digest: Digest): boolean {
   return digest.resources.length > 0 || Boolean(digest.editorsPick);
+}
+
+function editorialContextDebugFor(
+  digest: Digest,
+  leadSignal: CandidateSignal | null,
+  representativeLeadEvidence: SignalEvidence | null,
+  representativeSupportingEvidence: SignalEvidence[]
+): EditorialContextDebug {
+  return createEditorialContextDebug(
+    buildEditorialContexts({
+      leadSignal,
+      representativeLeadEvidence,
+      representativeSupportingEvidence,
+      editorsPick: digest.editorsPick,
+      resources: digest.resources
+    })
+  );
 }
 
 function candidateToResource(candidate: CandidateResource): Resource {
@@ -479,7 +503,8 @@ function applyRepresentativeRenderingAssembly(
   digest: Digest,
   selectionResult: EditorialSelectionResult,
   representativeLeadEvidence: SignalEvidence | null,
-  representativeSupportingEvidence: SignalEvidence[]
+  representativeSupportingEvidence: SignalEvidence[],
+  leadSignal: CandidateSignal | null
 ): Digest {
   if (!representativeLeadEvidence) {
     return digest;
@@ -538,11 +563,24 @@ function applyRepresentativeRenderingAssembly(
     seenRepos.add(repoKey);
   }
 
-  return {
-    ...digest,
+  const contexts = buildEditorialContexts({
+    leadSignal,
+    representativeLeadEvidence,
+    representativeSupportingEvidence,
     editorsPick,
     resources: supportingResources
-  };
+  });
+
+  return withEditorialSections(
+    {
+      date: digest.date,
+      trend_summary: digest.trend_summary,
+      editorsPick,
+      resources: supportingResources,
+      ...(leadSignal !== null ? { leadSignal } : {})
+    },
+    contexts
+  );
 }
 
 function applyLeadSignal(digest: Digest, leadSignal: CandidateSignal | null): Digest {
@@ -726,6 +764,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -748,7 +787,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
           selectionResult,
           representativeLeadEvidence,
-          representativeSupportingEvidence
+          representativeSupportingEvidence,
+          leadSignal
         ),
         leadSignal
       );
@@ -787,6 +827,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount: editorialDigest.resources.length,
         renderedResourceTitles: editorialDigest.resources.map((resource) => resource.title),
+        ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -807,7 +848,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           buildCandidateFallbackDigest(selectionResult),
           selectionResult,
           representativeLeadEvidence,
-          representativeSupportingEvidence
+          representativeSupportingEvidence,
+          leadSignal
         ),
         leadSignal
       );
@@ -844,6 +886,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hiddenEvidenceReasons,
           renderedResourceCount: fallbackDigest.resources.length,
           renderedResourceTitles: fallbackDigest.resources.map((resource) => resource.title),
+          ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -890,6 +933,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hiddenEvidenceReasons,
           renderedResourceCount,
           renderedResourceTitles,
+          ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -936,6 +980,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hiddenEvidenceReasons,
           renderedResourceCount,
           renderedResourceTitles,
+          ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -950,8 +995,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         };
       }
 
+      const emergencyFallbackDigest = createEmergencyFallbackDigest();
       return {
-        digest: createEmergencyFallbackDigest(),
+        digest: emergencyFallbackDigest,
         mode: "emergencyFallback",
         hasOpenAIKey,
         hasGeminiKey,
@@ -979,6 +1025,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1028,6 +1075,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -1074,6 +1122,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigestForResponse.resources.length,
@@ -1089,8 +1138,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     }
 
     console.error("Daily digest mode: emergencyFallback.");
+    const emergencyFallbackDigest = createEmergencyFallbackDigest();
     return {
-      digest: createEmergencyFallbackDigest(),
+      digest: emergencyFallbackDigest,
       mode: "emergencyFallback",
       hasOpenAIKey,
       hasGeminiKey,
@@ -1118,6 +1168,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hiddenEvidenceReasons,
       renderedResourceCount,
       renderedResourceTitles,
+      ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,

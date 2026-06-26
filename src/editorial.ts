@@ -1,4 +1,14 @@
 import type { Digest, Resource } from "./emailTemplate.js";
+import {
+  buildEditorialContexts,
+  type EditorsPickContext,
+  type EditorialContexts,
+  type HorizonContext,
+  type ImpactContext,
+  type MoveContext,
+  type SignalContext,
+  type SupportingSignalsContext
+} from "./editorialContexts.js";
 import { cleanText, truncateText } from "./textUtils.js";
 
 type EditorialFields = Pick<
@@ -195,6 +205,24 @@ function enrichResources(resources: Resource[]): Resource[] {
   });
 }
 
+function applyEditorsPickContext(resource: Resource | null, context: EditorsPickContext): Resource | null {
+  if (!resource) return null;
+
+  const contribution = context.contribution || resource.cleanSummary || resource.summary;
+  const source = context.sourceMetadata?.source ?? resource.source;
+
+  return {
+    ...resource,
+    cleanSummary: truncateText(contribution, 280),
+    summary: truncateText(contribution, 280),
+    why_selected: truncateText(`Selected as lead evidence for this thesis: ${context.claim}`, 160),
+    expected_impact_on_workflow: truncateText(
+      `Expected to help the team inspect ${source} as evidence for an AI-enabled Design System workflow change.`,
+      180
+    )
+  };
+}
+
 export function selectEditorsPick(resources: Resource[]): Resource | null {
   if (resources.length === 0) return null;
 
@@ -209,22 +237,21 @@ export function selectEditorsPick(resources: Resource[]): Resource | null {
   })[0];
 }
 
-function buildSignal(resources: Resource[], editorsPick: Resource | null): string {
-  if (resources.length === 0) {
+function buildSignal(context: SignalContext): string {
+  if (!context.claim || context.claim === "No strong DS x AI signal cleared the bar today.") {
     return "No strong signal cleared the bar today. The sources leaned either generic, introductory, or disconnected from mature Design System work. That is worth saying plainly: weak AI content creates false urgency, especially when it never touches Figma libraries, Storybook evidence, React implementation, governance, documentation, accessibility, or agent-readable QA. The useful move is to protect attention and inspect our own readiness. Pick one high-traffic component and ask whether an internal Design System Agent could understand its variants, token intent, accessibility states, Storybook examples, Azure DevOps links, and review rules without asking a human to interpret the gaps.";
   }
 
-  const pickTitle = truncateText(editorsPick?.title ?? resources[0].title, 80);
-  const allAreas = Array.from(new Set(resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource))));
-  const themes = allAreas.slice(0, 3);
-  const themePhrase = workflowPhrase(themes.length ? themes : ["Documentation", "Internal Design System Agent"]);
-  const brief = `The useful signal is not that AI can produce more interface work; it is that mature systems now need sharper evidence. This week's strongest thread sits across ${themePhrase}: the places where component intent, implementation rules, and review criteria either become machine-readable or remain tribal knowledge. "${pickTitle}" is the lead item because it points to workflow impact, not novelty theatre. Watch for anything that helps agents read Figma or Storybook context, respect React and React Native constraints, surface accessibility checks, or connect governance back into Azure DevOps and documentation. Speed matters less than whether generated work can be reviewed against the same system rules the team already owns.`;
+  const themePhrase = context.themeAnchor || "Documentation + Internal Design System Agent";
+  const claim = truncateText(context.claim, 90);
+  const whyNow = truncateText(context.whyNow, 170);
+  const brief = `The useful signal is not that AI can produce more interface work; it is that mature systems now need sharper evidence. This week's strongest thread sits across ${themePhrase}: the places where component intent, implementation rules, and review criteria either become machine-readable or remain tribal knowledge. "${claim}" is the lead thesis because it points to workflow impact, not novelty theatre. ${whyNow} Speed matters less than whether generated work can be reviewed against the same system rules the team already owns.`;
 
   return polishSignal(brief);
 }
 
-function buildSupportingSignals(resources: Resource[]): string[] {
-  if (resources.length === 0) {
+function buildSupportingSignals(context: SupportingSignalsContext): string[] {
+  if (context.representativeSupportingEvidence.length === 0) {
     return [
       "Most available items were too broad for a mature Design System team.",
       "The practical gap is still internal: component knowledge needs to be readable by people and agents.",
@@ -232,15 +259,17 @@ function buildSupportingSignals(resources: Resource[]): string[] {
     ];
   }
 
-  const areas = new Set(resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource)));
+  const supportingText = `${context.contributions.join(" ")} ${context.representativeSupportingEvidence
+    .map((evidence) => `${evidence.title} ${evidence.source}`)
+    .join(" ")}`.toLowerCase();
   const signals = [
-    areas.has("Internal Design System Agent")
+    supportingText.includes("agent") || supportingText.includes("mcp") || supportingText.includes("ai")
       ? "Agent-readable component knowledge is becoming part of the Design System surface."
       : "The useful AI work is narrowing toward operational workflow changes, not broad productivity claims.",
-    areas.has("Figma") || areas.has("React")
+    supportingText.includes("figma") || supportingText.includes("react") || supportingText.includes("design-to-code")
       ? "Figma intent and React implementation need a tighter handshake before generation can be trusted."
       : "The strongest signals make system decisions easier to verify across design and engineering.",
-    areas.has("Internal QA Agent") || areas.has("Accessibility") || areas.has("Storybook")
+    supportingText.includes("qa") || supportingText.includes("accessibility") || supportingText.includes("storybook")
       ? "Storybook, accessibility, and QA evidence are becoming the guardrails for assisted delivery."
       : "Documentation is becoming an automation input, not a cleanup task."
   ];
@@ -248,17 +277,19 @@ function buildSupportingSignals(resources: Resource[]): string[] {
   return signals.slice(0, 3);
 }
 
-function buildSuggestedExperiment(resources: Resource[], editorsPick: Resource | null): string {
-  if (resources.length === 0) {
+function buildSuggestedExperiment(context: MoveContext): string {
+  if (!context.opportunityMove) {
     return "In 30 minutes, audit one high-use component and add a checklist of what an internal Design System Agent and Internal QA Agent would need: Figma variant intent, Storybook examples, React/React Native props, accessibility states, Azure DevOps link, and governance rule.";
   }
 
-  const pick = truncateText(editorsPick?.title ?? resources[0].title, 90);
-  return `In 30 minutes, use "${pick}" to audit one component: compare its Figma variants, Storybook states, React or React Native props, documentation, accessibility notes, and Azure DevOps ownership. Capture one gap an internal agent should not have to infer.`;
+  return `In 30 minutes, use this move on ${context.targetSurface}: ${truncateText(
+    context.opportunityMove,
+    150
+  )} Start with ${context.preconditions[0] ?? "one high-use component"} and capture one gap an internal agent should not have to infer.`;
 }
 
-function buildTeamQuestions(resources: Resource[]): string[] {
-  if (resources.length === 0) {
+function buildTeamQuestions(context: ImpactContext): string[] {
+  if (!context.claim) {
     return [
       "Which Figma library component would expose the biggest gap if an internal Design System Agent tried to explain it today?",
       "Where do Storybook, React or React Native, Azure DevOps, and documentation disagree about ownership or expected behavior?",
@@ -266,43 +297,43 @@ function buildTeamQuestions(resources: Resource[]): string[] {
     ];
   }
 
+  const surfaces = workflowPhrase(context.workflowSurface.length ? context.workflowSurface.slice(0, 3) : ["Figma", "Storybook"]);
+
   return [
-    "What would need to change in Figma, Storybook, React, or React Native for this signal to become usable in our workflow?",
+    `What would need to change in ${surfaces} for this signal to become usable in our workflow?`,
     "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
-    "Which governance, accessibility, or Internal QA Agent check should stay visible before AI-assisted changes ship?"
+    `Which governance, accessibility, or Internal QA Agent check would reduce this cost of inaction: ${truncateText(
+      context.costOfInaction,
+      120
+    )}`
   ];
 }
 
-function buildNextWeekWatchlist(resources: Resource[]): string[] {
-  if (resources.length === 0) {
-    return [
-      "Look for practical examples of agents reading Storybook or Figma metadata, not generic AI commentary.",
-      "Watch for design-to-code work that explains review quality, accessibility, and component reuse.",
-      "Track whether tooling connects outputs back to governance, Azure DevOps, and documentation."
-    ];
-  }
-
-  const areas = new Set(resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource)));
-  return [
-    areas.has("Storybook")
-      ? "Watch whether Storybook AI/MCP work moves from release notes into repeatable component review workflows."
-      : "Watch for Storybook examples that expose component states and metadata to internal agents.",
-    areas.has("Figma")
-      ? "Track whether Figma-related AI work explains metadata quality, variant intent, and design-to-code review."
-      : "Look for Figma library signals that make component intent clearer for automation.",
-    areas.has("Internal QA Agent") || areas.has("Accessibility")
-      ? "Watch for accessibility and QA automation that can plug into Azure DevOps instead of living as side checks."
-      : "Look for governance patterns that tie AI-assisted changes back to documentation and ownership."
-  ];
+function buildNextWeekWatchlist(context: HorizonContext): string[] {
+  return context.watchlist.length
+    ? context.watchlist.slice(0, 3)
+    : [
+        "Look for practical examples of agents reading Storybook or Figma metadata, not generic AI commentary.",
+        "Watch for design-to-code work that explains review quality, accessibility, and component reuse.",
+        "Track whether tooling connects outputs back to governance, Azure DevOps, and documentation."
+      ];
 }
 
-export function withEditorialSections(digest: DigestInput): Digest {
+export function withEditorialSections(digest: DigestInput, editorialContexts?: EditorialContexts): Digest {
   const resources = enrichResources(digest.resources);
-  const editorsPick = digest.editorsPick
+  const provisionalEditorsPick = digest.editorsPick
     ? enrichResources([digest.editorsPick])[0]
     : selectEditorsPick(resources);
-  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(resources, editorsPick));
-  const supportingSignals = digest.supportingSignals ?? digest.thisWeeksSignals ?? buildSupportingSignals(resources);
+  const contexts =
+    editorialContexts ??
+    buildEditorialContexts({
+      leadSignal: digest.leadSignal,
+      editorsPick: provisionalEditorsPick,
+      resources
+    });
+  const editorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext);
+  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext));
+  const supportingSignals = digest.supportingSignals ?? digest.thisWeeksSignals ?? buildSupportingSignals(contexts.supportingSignalsContext);
 
   return {
     date: digest.date,
@@ -312,9 +343,9 @@ export function withEditorialSections(digest: DigestInput): Digest {
     editorsPick,
     supportingSignals,
     thisWeeksSignals: supportingSignals,
-    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(resources, editorsPick),
-    teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(resources),
-    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(resources),
+    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext),
+    teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(contexts.impactContext),
+    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(contexts.horizonContext),
     ...(digest.leadSignal !== undefined ? { leadSignal: digest.leadSignal } : {}),
     resources
   };

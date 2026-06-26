@@ -56,6 +56,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
             renderedResourceCount: result.renderedResourceCount,
             renderedResourceTitles: result.renderedResourceTitles,
             renderingPipelineTrace,
+            editorialContexts: result.editorialContexts,
+            contextBoundaryViolations: result.contextBoundaryViolations,
             candidateCount: result.candidateCount,
             filteredCandidateCount: result.filteredCandidateCount,
             selectedResourceCount: result.selectedResourceCount,
