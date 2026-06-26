@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
+import { selectEditorialThesis } from "./editorialThesis.js";
 
 function candidate(overrides: Partial<CandidateResource>): CandidateResource {
   return {
@@ -74,6 +75,59 @@ const result = selectEditorialCandidates([
     directDesignSystemEvidence: ""
   })
 ]);
+const thesisResult = selectEditorialThesis([
+  candidate({
+    title: "Reasoning for Mobile User Experience with LLM Agents",
+    url: "https://arxiv.org/abs/3333.3333",
+    source: "arXiv",
+    snippet: "LLM agent reasoning for mobile user experience workflows and automation.",
+    cleanSummary: "LLM agent reasoning for mobile user experience workflows and automation.",
+    directDesignSystemEvidence: ""
+  }),
+  candidate({
+    title: "Figma2Code: LLM automation from design mockups to code",
+    url: "https://arxiv.org/abs/2222.2222",
+    source: "arXiv",
+    snippet: "Uses Figma metadata for UI code generation, design-to-code, component generation and production-ready UI.",
+    cleanSummary: "Uses Figma metadata for UI code generation, design-to-code, component generation and production-ready UI.",
+    directDesignSystemEvidence: "Design-to-code evidence in title/snippet. Uses Figma metadata for UI code generation."
+  }),
+  candidate({
+    title: "Storybook AI MCP component metadata for DS agents",
+    url: "https://storybook.js.org/releases/ai-mcp",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    cleanSummary: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    directDesignSystemEvidence: "Storybook workflow anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "What is a Design System governance model?",
+    url: "https://example.com/design-system-governance",
+    source: "Design Systems Weekly",
+    snippet: "Design system governance, component ownership and documentation review for system teams.",
+    cleanSummary: "Design system governance, component ownership and documentation review for system teams.",
+    directDesignSystemEvidence: "Design system governance evidence in title/snippet."
+  }),
+  candidate({
+    title: "New LLM benchmark for agent reasoning",
+    url: "https://example.com/llm-agent-benchmark",
+    source: "AI Research Blog",
+    snippet: "LLM agent benchmark for reasoning, RAG, automation and tool use without UI or Design System impact.",
+    cleanSummary: "LLM agent benchmark for reasoning, RAG, automation and tool use without UI or Design System impact.",
+    directDesignSystemEvidence: ""
+  }),
+  candidate({
+    title: "Frontend performance checklist for React teams",
+    url: "https://example.com/frontend-react-performance",
+    source: "Frontend Blog",
+    snippet: "React frontend performance checklist for product engineering teams.",
+    cleanSummary: "React frontend performance checklist for product engineering teams.",
+    directDesignSystemEvidence: ""
+  })
+]);
+
+assert.equal(selectEditorialThesis, selectEditorialCandidates, "M0 thesis selector must be the existing selector.");
+assert.deepEqual(thesisResult, result, "M0 thesis selector must return the same selection result.");
 
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0

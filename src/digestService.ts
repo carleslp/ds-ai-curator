@@ -446,7 +446,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     candidatePool = filterRecentCandidates(candidates);
     console.log(`Step 3: Candidate normalization/recent-history pass completed (${candidatePool.length} candidates).`);
     console.log("Step 4: Topic classification and editorial scoring started.");
-    selectionResult = thesisEngineEnabled ? selectEditorialThesis(candidatePool) : selectEditorialCandidates(candidatePool);
+    const selectCandidates = thesisEngineEnabled ? selectEditorialThesis : selectEditorialCandidates;
+    selectionResult = selectCandidates(candidatePool);
     rejectedCandidates = selectionResult.rejectedDecisions;
     console.log(
       `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
