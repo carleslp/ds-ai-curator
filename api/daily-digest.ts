@@ -32,6 +32,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
             mode: result.mode,
             hasOpenAIKey: result.hasOpenAIKey,
             hasGeminiKey: result.hasGeminiKey,
+            thesisEngineEnabled: result.thesisEngineEnabled,
             candidateCount: result.candidateCount,
             filteredCandidateCount: result.filteredCandidateCount,
             selectedResourceCount: result.selectedResourceCount,

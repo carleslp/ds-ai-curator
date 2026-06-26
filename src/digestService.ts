@@ -16,6 +16,7 @@ import {
   type EditorialSelectionResult,
   type TopicGroup
 } from "./editorialSelection.js";
+import { selectEditorialThesis } from "./editorialThesis.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
   aiEvidenceForText,
@@ -103,6 +104,7 @@ type DailyDigestResult = {
   mode: DigestMode;
   hasOpenAIKey: boolean;
   hasGeminiKey: boolean;
+  thesisEngineEnabled: boolean;
   candidateCount: number;
   filteredCandidateCount: number;
   selectedResourceCount: number;
@@ -119,6 +121,10 @@ type DailyDigestResult = {
 let cachedDigest: Digest | undefined;
 const recentSelectedUrls = new Map<string, number>();
 const historyWindowMs = 30 * 24 * 60 * 60 * 1000;
+
+function thesisEngineEnabledFromEnv(): boolean {
+  return process.env.THESIS_ENGINE === "true";
+}
 
 function todayIsoDate(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -419,6 +425,7 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
 export async function getDailyDigest(): Promise<DailyDigestResult> {
   const hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
+  const thesisEngineEnabled = thesisEngineEnabledFromEnv();
   let candidates: CandidateResource[] = [];
   let candidatePool: CandidateResource[] = [];
   let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
@@ -427,6 +434,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
+  console.log(`Provider config: THESIS_ENGINE enabled? ${thesisEngineEnabled}`);
 
   try {
     console.log("Step 1: Candidate collection started.");
@@ -438,7 +446,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     candidatePool = filterRecentCandidates(candidates);
     console.log(`Step 3: Candidate normalization/recent-history pass completed (${candidatePool.length} candidates).`);
     console.log("Step 4: Topic classification and editorial scoring started.");
-    selectionResult = selectEditorialCandidates(candidatePool);
+    selectionResult = thesisEngineEnabled ? selectEditorialThesis(candidatePool) : selectEditorialCandidates(candidatePool);
     rejectedCandidates = selectionResult.rejectedDecisions;
     console.log(
       `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
@@ -459,6 +467,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "candidateFallbackEmptySelection",
         hasOpenAIKey,
         hasGeminiKey,
+        thesisEngineEnabled,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: fallbackDigest.resources.length,
@@ -488,6 +497,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: ranked.provider === "openAI" ? "liveOpenAI" : "liveGemini",
         hasOpenAIKey,
         hasGeminiKey,
+        thesisEngineEnabled,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -513,6 +523,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           mode: "candidateFallback",
           hasOpenAIKey,
           hasGeminiKey,
+          thesisEngineEnabled,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
@@ -535,6 +546,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           mode: "candidateFallbackEmptySelection",
           hasOpenAIKey,
           hasGeminiKey,
+          thesisEngineEnabled,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: 0,
@@ -556,6 +568,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           mode: "cachedDigest",
           hasOpenAIKey,
           hasGeminiKey,
+          thesisEngineEnabled,
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: cachedDigest.resources.length,
@@ -575,6 +588,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "emergencyFallback",
         hasOpenAIKey,
         hasGeminiKey,
+        thesisEngineEnabled,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -600,6 +614,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "candidateFallbackEmptySelection",
         hasOpenAIKey,
         hasGeminiKey,
+        thesisEngineEnabled,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: 0,
@@ -621,6 +636,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "cachedDigest",
         hasOpenAIKey,
         hasGeminiKey,
+        thesisEngineEnabled,
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: cachedDigest.resources.length,
@@ -641,6 +657,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       mode: "emergencyFallback",
       hasOpenAIKey,
       hasGeminiKey,
+      thesisEngineEnabled,
       candidateCount: candidates.length,
       filteredCandidateCount: selectionResult.qualifyingCandidateCount,
       selectedResourceCount: 0,
