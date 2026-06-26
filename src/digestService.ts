@@ -212,6 +212,43 @@ function normalizeUrl(url: string): string {
   return url.replace(/[#?].*$/, "").replace(/\/$/, "");
 }
 
+function normalizeTitleForDedupe(value: string): string {
+  return value.toLowerCase().replace(/\bv?\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?\b/g, "version").replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function sourceFamilyForResource(resource: Resource): string {
+  try {
+    return new URL(resource.url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return resource.source.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  }
+}
+
+function repoKeyForResource(resource: Resource): string {
+  try {
+    const url = new URL(resource.url);
+    const parts = url.pathname.split("/").filter(Boolean);
+    if (url.hostname.includes("github.com") && parts.length >= 2) {
+      return `${url.hostname}/${parts[0]}/${parts[1]}`.toLowerCase();
+    }
+  } catch {
+    // Fall through to source family when the URL is malformed.
+  }
+
+  return sourceFamilyForResource(resource);
+}
+
+function isDuplicateOfEditorsPick(resource: Resource, editorsPick: Resource | null): boolean {
+  if (!editorsPick) return false;
+
+  return (
+    normalizeUrl(resource.url) === normalizeUrl(editorsPick.url) ||
+    normalizeTitleForDedupe(resource.title) === normalizeTitleForDedupe(editorsPick.title) ||
+    sourceFamilyForResource(resource) === sourceFamilyForResource(editorsPick) ||
+    repoKeyForResource(resource) === repoKeyForResource(editorsPick)
+  );
+}
+
 function pruneRecentHistory(): void {
   const cutoff = Date.now() - historyWindowMs;
   for (const [url, timestamp] of recentSelectedUrls.entries()) {
@@ -230,9 +267,16 @@ function filterRecentCandidates(candidates: CandidateResource[]): CandidateResou
 function rememberDigest(digest: Digest): void {
   pruneRecentHistory();
   const now = Date.now();
+  if (digest.editorsPick) {
+    recentSelectedUrls.set(normalizeUrl(digest.editorsPick.url), now);
+  }
   for (const resource of digest.resources) {
     recentSelectedUrls.set(normalizeUrl(resource.url), now);
   }
+}
+
+function hasRenderableDigestContent(digest: Digest): boolean {
+  return digest.resources.length > 0 || Boolean(digest.editorsPick);
 }
 
 function candidateToResource(candidate: CandidateResource): Resource {
@@ -428,6 +472,76 @@ function applyWorkflowImpactEditorsPick(digest: Digest, selectionResult: Editori
     ...digest,
     resources,
     editorsPick
+  };
+}
+
+function applyRepresentativeRenderingAssembly(
+  digest: Digest,
+  selectionResult: EditorialSelectionResult,
+  representativeLeadEvidence: SignalEvidence | null,
+  representativeSupportingEvidence: SignalEvidence[]
+): Digest {
+  if (!representativeLeadEvidence) {
+    return digest;
+  }
+
+  const decisionMap = decisionsByUrl(selectionResult.selectedDecisions);
+  const resourceByUrl = new Map(digest.resources.map((resource) => [normalizeUrl(resource.url), resource]));
+  const candidateByUrl = new Map(selectionResult.selectedCandidates.map((candidate) => [normalizeUrl(candidate.url), candidate]));
+
+  function resourceForEvidence(evidence: SignalEvidence): Resource | null {
+    const url = normalizeUrl(evidence.resourceRef.url);
+    const existing = resourceByUrl.get(url);
+    if (existing) {
+      return applySelectionMetadataToResource(existing, decisionMap.get(url));
+    }
+
+    const candidate = candidateByUrl.get(url);
+    if (candidate) {
+      return applySelectionMetadataToResource(candidateToResource(candidate), decisionMap.get(url));
+    }
+
+    return null;
+  }
+
+  const editorsPick = resourceForEvidence(representativeLeadEvidence) ?? digest.editorsPick;
+  const supportingResources: Resource[] = [];
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+  const seenSourceFamilies = new Set<string>();
+  const seenRepos = new Set<string>();
+
+  for (const evidence of representativeSupportingEvidence) {
+    const resource = resourceForEvidence(evidence);
+    if (!resource || isDuplicateOfEditorsPick(resource, editorsPick)) {
+      continue;
+    }
+
+    const urlKey = normalizeUrl(resource.url);
+    const titleKey = normalizeTitleForDedupe(resource.title);
+    const sourceFamilyKey = sourceFamilyForResource(resource);
+    const repoKey = repoKeyForResource(resource);
+
+    if (
+      seenUrls.has(urlKey) ||
+      seenTitles.has(titleKey) ||
+      seenSourceFamilies.has(sourceFamilyKey) ||
+      seenRepos.has(repoKey)
+    ) {
+      continue;
+    }
+
+    supportingResources.push(resource);
+    seenUrls.add(urlKey);
+    seenTitles.add(titleKey);
+    seenSourceFamilies.add(sourceFamilyKey);
+    seenRepos.add(repoKey);
+  }
+
+  return {
+    ...digest,
+    editorsPick,
+    resources: supportingResources
   };
 }
 
@@ -630,7 +744,12 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       console.log("Step 6: LLM ranking/summarization started.");
       const ranked = await rankWithAvailableProvider(selectionResult.selectedCandidates);
       const editorialDigest = applyLeadSignal(
-        applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
+        applyRepresentativeRenderingAssembly(
+          applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
+          selectionResult,
+          representativeLeadEvidence,
+          representativeSupportingEvidence
+        ),
         leadSignal
       );
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
@@ -666,8 +785,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         representativeSelectionReasons,
         hiddenEvidenceCount,
         hiddenEvidenceReasons,
-        renderedResourceCount,
-        renderedResourceTitles,
+        renderedResourceCount: editorialDigest.resources.length,
+        renderedResourceTitles: editorialDigest.resources.map((resource) => resource.title),
         candidateCount: candidates.length,
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
@@ -683,10 +802,18 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       const fallbackReason = getErrorMessage(error);
       console.error(`LLM ranking failed: ${fallbackReason}`);
 
-      const fallbackDigest = applyLeadSignal(buildCandidateFallbackDigest(selectionResult), leadSignal);
+      const fallbackDigest = applyLeadSignal(
+        applyRepresentativeRenderingAssembly(
+          buildCandidateFallbackDigest(selectionResult),
+          selectionResult,
+          representativeLeadEvidence,
+          representativeSupportingEvidence
+        ),
+        leadSignal
+      );
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
-      if (fallbackDigest.resources.length > 0) {
+      if (hasRenderableDigestContent(fallbackDigest)) {
         rememberDigest(fallbackDigest);
         return {
           digest: fallbackDigest,
@@ -715,8 +842,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           representativeSelectionReasons,
           hiddenEvidenceCount,
           hiddenEvidenceReasons,
-          renderedResourceCount,
-          renderedResourceTitles,
+          renderedResourceCount: fallbackDigest.resources.length,
+          renderedResourceTitles: fallbackDigest.resources.map((resource) => resource.title),
           candidateCount: candidates.length,
           filteredCandidateCount: selectionResult.qualifyingCandidateCount,
           selectedResourceCount: fallbackDigest.resources.length,
