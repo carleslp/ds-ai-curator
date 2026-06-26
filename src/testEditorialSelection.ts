@@ -223,6 +223,79 @@ assert.equal(evidenceBeforeSelectionResult.selectionResult.selectedCandidates.le
 assert.equal(evidenceBeforeSelectionResult.selectionResult.selectedCandidates[0].url, "https://example.com/ai-design-token-semantics");
 assert.equal(evidenceBeforeSelectionResult.leadSignal.evidence[0].resourceRef.url, "https://example.com/ai-design-token-semantics");
 
+const diversityResult = selectEditorialThesis([
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.1",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.1",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP preset metadata for component docs.",
+    cleanSummary: "Storybook AI MCP preset metadata for component docs.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.2",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.2",
+    source: "Storybook Releases",
+    snippet: "Storybook AI CLI MCP passthrough for component docs.",
+    cleanSummary: "Storybook AI CLI MCP passthrough for component docs.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.3",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.3",
+    source: "Storybook Releases",
+    snippet: "Storybook component manifest docgen for AI-readable docs.",
+    cleanSummary: "Storybook component manifest docgen for AI-readable docs.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.4",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.4",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata for documentation automation.",
+    cleanSummary: "Storybook AI MCP component metadata for documentation automation.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.5",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.5",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component docs updates.",
+    cleanSummary: "Storybook AI MCP component docs updates.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet."
+  }),
+  candidate({
+    title: "Figma2Code: LLM automation from design mockups to code",
+    url: "https://arxiv.org/abs/2222.2222",
+    source: "arXiv",
+    snippet: "Uses Figma metadata for UI code generation, design-to-code, component generation and production-ready UI.",
+    cleanSummary: "Uses Figma metadata for UI code generation, design-to-code, component generation and production-ready UI.",
+    directDesignSystemEvidence: "Design-to-code evidence in title/snippet. Uses Figma metadata for UI code generation."
+  }),
+  candidate({
+    title: "Figma metadata checklist for AI design-to-code governance",
+    url: "https://example.com/figma-ai-design-to-code-governance",
+    source: "Design Systems Weekly",
+    snippet: "Figma metadata checklist for AI design-to-code governance, component reuse and production-ready UI.",
+    cleanSummary: "Figma metadata checklist for AI design-to-code governance, component reuse and production-ready UI.",
+    directDesignSystemEvidence: "Design-to-code evidence in title/snippet. Figma metadata checklist for component reuse."
+  })
+]);
+
+assert.ok(diversityResult.leadSignal, "Diversity scoring should still produce a Lead Signal.");
+assert.match(diversityResult.leadSignal.claim, /Figma metadata|Design-to-Code/i);
+const storybookReleaseGroup = diversityResult.evidenceGroups.find((group) => group.claim.includes("Storybook"));
+assert.ok(storybookReleaseGroup, "Expected Storybook release-note group in debug.");
+assert.equal(storybookReleaseGroup.uniqueIndependenceMarkerCount, 1);
+assert.ok(storybookReleaseGroup.repeatedSourcePenalty > 0, "Same-source release-note group should receive a repeated-source penalty.");
+assert.ok(storybookReleaseGroup.contributionSimilarityPenalty > 0, "Similar release-note group should receive a contribution-similarity penalty.");
+assert.ok(diversityResult.leadSignalSelectionReason.length > 0, "Lead Signal selection reason should be exposed.");
+assert.ok(diversityResult.runnerUpEvidenceGroups.length >= 1, "Runner-up Evidence groups should be exposed.");
+assert.ok(
+  diversityResult.selectionResult.selectedCandidates.length <= diversityResult.leadSignal.evidence.length,
+  "Rendered resources should not exceed the internal Evidence set."
+);
+
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0
 );

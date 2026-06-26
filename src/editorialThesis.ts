@@ -60,6 +60,15 @@ export type EvidenceGroup = {
   contradictingEvidenceCount: number;
   leadEvidenceTitle: string;
   totalStrength: number;
+  qualityAdjustedScore: number;
+  uniqueIndependenceMarkerCount: number;
+  sourceFamilyCount: number;
+  repeatedSourcePenalty: number;
+  contributionSimilarityPenalty: number;
+  crossSurfaceScore: number;
+  workflowImpactScore: number;
+  actionabilityScore: number;
+  groupQualityReason: string;
 };
 
 export type EvidencePromotionRejection = {
@@ -81,6 +90,8 @@ export type EditorialThesisResult = {
   evidencePromotionInputCount: number;
   promotedEvidenceCount: number;
   evidenceGroups: EvidenceGroup[];
+  leadSignalSelectionReason: string;
+  runnerUpEvidenceGroups: EvidenceGroup[];
   evidencePromotionRejections: EvidencePromotionRejection[];
 };
 
@@ -213,6 +224,21 @@ function sourceDomain(url: string): string {
   }
 }
 
+function sourceFamilyFor(candidate: CandidateResource): string {
+  const domain = sourceDomain(candidate.url);
+  if (domain) return domain.replace(/^api\./, "");
+  return candidate.source.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function candidateText(candidate: CandidateResource): string {
+  return `${candidate.title} ${candidate.source} ${candidate.snippet} ${candidate.cleanSummary} ${candidate.rawText}`.toLowerCase();
+}
+
+function isReleaseLike(candidate: CandidateResource): boolean {
+  const text = `${candidate.title} ${candidate.source} ${candidate.url}`.toLowerCase();
+  return /\b(release|changelog|alpha|beta|rc|v\d+\.\d+|\d+\.\d+\.\d+)\b/.test(text);
+}
+
 function evidenceContribution(candidate: CandidateResource, decision: EditorialSelectionDecision): string {
   const topicFocus = [
     ...decision.designSystemTopics.slice(0, 2),
@@ -220,8 +246,21 @@ function evidenceContribution(candidate: CandidateResource, decision: EditorialS
     ...decision.aiTopics.slice(0, 1)
   ].join(", ");
   const evidence = candidate.directDesignSystemEvidence.trim();
+  const text = candidateText(candidate);
 
   if (decision.topicGroup === "Storybook") {
+    if (text.includes("preset") || text.includes("metadata")) {
+      return "Shows Storybook exposing AI help through preset or component metadata, turning documentation structure into something agents can consume.";
+    }
+
+    if (text.includes("cli") || text.includes("mcp")) {
+      return "Shows the AI CLI/MCP path moving from experiment toward a repeatable Storybook workflow for component-aware assistance.";
+    }
+
+    if (text.includes("manifest") || text.includes("docgen")) {
+      return "Shows component manifest or docgen work becoming part of the AI-readable component surface.";
+    }
+
     return "Shows that Storybook evidence can become more machine-readable for AI-assisted component documentation, review, and agent consumption.";
   }
 
@@ -379,8 +418,100 @@ function evidenceGroupStrength(group: EvidenceCandidate[]): number {
   return group.reduce((total, item) => total + item.strength, 0) + supportingCount * 5 + independentMarkers * 4;
 }
 
+function normalizeContribution(value: string): string {
+  return value.toLowerCase().replace(/["'’]/g, "").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 96);
+}
+
+function crossSurfaceScoreFor(group: EvidenceCandidate[]): number {
+  const surfaces = new Set<string>();
+
+  for (const item of group) {
+    for (const topic of item.decision.designSystemTopics) surfaces.add(topic);
+    for (const topic of item.decision.workflowTopics) surfaces.add(topic);
+    if (item.decision.topicGroup !== "Other") surfaces.add(item.decision.topicGroup);
+  }
+
+  return Math.min(28, surfaces.size * 4);
+}
+
+function groupWorkflowImpactScore(group: EvidenceCandidate[]): number {
+  return Math.min(40, Math.round(group.reduce((total, item) => total + workflowImpactScore(item.decision), 0) / Math.max(1, group.length)));
+}
+
+function groupActionabilityScore(group: EvidenceCandidate[]): number {
+  return Math.min(30, group.reduce((total, item) => total + item.decision.actionabilityScore, 0));
+}
+
+function repeatedSourcePenaltyFor(group: EvidenceCandidate[]): number {
+  const evidenceCount = group.length;
+  const uniqueIndependenceMarkerCount = new Set(group.map((item) => item.evidence.independenceMarker)).size;
+  const sourceFamilyCount = new Set(group.map((item) => sourceFamilyFor(item.candidate))).size;
+  const allReleaseLike = evidenceCount > 1 && group.every((item) => isReleaseLike(item.candidate));
+  let penalty = Math.max(0, evidenceCount - uniqueIndependenceMarkerCount) * 18;
+
+  if (evidenceCount > 1 && uniqueIndependenceMarkerCount === 1) penalty += 28;
+  if (evidenceCount > 1 && sourceFamilyCount === 1) penalty += 18;
+  if (allReleaseLike && uniqueIndependenceMarkerCount === 1 && sourceFamilyCount === 1) penalty += 35;
+
+  return penalty;
+}
+
+function contributionSimilarityPenaltyFor(group: EvidenceCandidate[]): number {
+  const contributions = group.map((item) => normalizeContribution(item.evidence.contribution));
+  const uniqueContributions = new Set(contributions).size;
+  let penalty = Math.max(0, group.length - uniqueContributions) * 12;
+
+  if (group.length > 1 && uniqueContributions === 1) penalty += 24;
+
+  return penalty;
+}
+
+function evidenceGroupQuality(group: EvidenceCandidate[]): EvidenceGroup {
+  const evidenceSet = group.map((item) => item.evidence);
+  const lead = group.find((item) => item.evidence.role === "lead") ?? group[0];
+  const totalStrength = roundScore(evidenceGroupStrength(group));
+  const uniqueIndependenceMarkerCount = new Set(group.map((item) => item.evidence.independenceMarker)).size;
+  const sourceFamilyCount = new Set(group.map((item) => sourceFamilyFor(item.candidate))).size;
+  const repeatedSourcePenalty = repeatedSourcePenaltyFor(group);
+  const contributionSimilarityPenalty = contributionSimilarityPenaltyFor(group);
+  const crossSurfaceScore = crossSurfaceScoreFor(group);
+  const workflowImpactScoreValue = groupWorkflowImpactScore(group);
+  const actionabilityScore = groupActionabilityScore(group);
+  const qualityAdjustedScore = roundScore(
+    totalStrength +
+      crossSurfaceScore +
+      workflowImpactScoreValue +
+      actionabilityScore -
+      repeatedSourcePenalty -
+      contributionSimilarityPenalty
+  );
+  const groupQualityReason =
+    uniqueIndependenceMarkerCount === 1 && group.length > 1
+      ? `Penalized for ${group.length} evidence items sharing one independence marker.`
+      : `Rewarded for ${uniqueIndependenceMarkerCount} independence markers across ${sourceFamilyCount} source families.`;
+
+  return {
+    groupKey: lead?.groupKey ?? "",
+    claim: lead ? claimFor(lead.decision, lead.candidate) : "",
+    evidenceCount: evidenceSet.length,
+    supportingEvidenceCount: evidenceSet.filter((evidence) => evidence.stance === "supports").length,
+    contradictingEvidenceCount: evidenceSet.filter((evidence) => evidence.stance === "contradicts").length,
+    leadEvidenceTitle: lead?.evidence.resourceRef.title ?? "",
+    totalStrength,
+    qualityAdjustedScore,
+    uniqueIndependenceMarkerCount,
+    sourceFamilyCount,
+    repeatedSourcePenalty,
+    contributionSimilarityPenalty,
+    crossSurfaceScore,
+    workflowImpactScore: workflowImpactScoreValue,
+    actionabilityScore,
+    groupQualityReason
+  };
+}
+
 function selectLeadEvidenceGroup(groups: EvidenceCandidate[][]): EvidenceCandidate[] {
-  return [...groups].sort((a, b) => evidenceGroupStrength(b) - evidenceGroupStrength(a))[0] ?? [];
+  return [...groups].sort((a, b) => evidenceGroupQuality(b).qualityAdjustedScore - evidenceGroupQuality(a).qualityAdjustedScore)[0] ?? [];
 }
 
 function claimFor(decision: EditorialSelectionDecision, candidate: CandidateResource): string {
@@ -427,6 +558,35 @@ function buildCandidateSignal(lead: EvidenceCandidate, evidenceSet: SignalEviden
   };
 }
 
+function renderableEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: string): EvidenceCandidate[] {
+  const lead = leadGroup.find((item) => item.candidate.url === leadUrl);
+  const rest = leadGroup.filter((item) => item.candidate.url !== leadUrl);
+  const sameSourceReleaseNotes = rest.filter(
+    (item) => lead && sourceFamilyFor(item.candidate) === sourceFamilyFor(lead.candidate) && isReleaseLike(item.candidate)
+  );
+
+  if (!lead || sameSourceReleaseNotes.length <= 2) {
+    return lead ? [lead, ...rest] : leadGroup;
+  }
+
+  const allowedSameSourceReleaseUrls = new Set(
+    sameSourceReleaseNotes
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 2)
+      .map((item) => item.candidate.url)
+  );
+
+  return [
+    lead,
+    ...rest.filter(
+      (item) =>
+        sourceFamilyFor(item.candidate) !== sourceFamilyFor(lead.candidate) ||
+        !isReleaseLike(item.candidate) ||
+        allowedSameSourceReleaseUrls.has(item.candidate.url)
+    )
+  ];
+}
+
 function selectionFromLeadEvidence(
   selectionResult: EditorialSelectionResult,
   leadGroup: EvidenceCandidate[],
@@ -443,17 +603,18 @@ function selectionFromLeadEvidence(
   }
 
   const leadUrl = leadSignal.resourceUrl;
+  const renderableLeadGroup = renderableEvidenceGroup(leadGroup, leadUrl);
   const selectedCandidates = [
-    ...leadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => item.candidate),
-    ...leadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => item.candidate)
+    ...renderableLeadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => item.candidate),
+    ...renderableLeadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => item.candidate)
   ];
   const selectedDecisions = [
-    ...leadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => ({
+    ...renderableLeadGroup.filter((item) => item.candidate.url === leadUrl).map((item) => ({
       ...item.decision,
       selectedBecause: item.decision.selectedBecause || `Selected as lead Evidence for "${leadSignal.claim}".`,
       skippedBecause: ""
     })),
-    ...leadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => ({
+    ...renderableLeadGroup.filter((item) => item.candidate.url !== leadUrl).map((item) => ({
       ...item.decision,
       selectedBecause: item.decision.selectedBecause || `Selected as ${item.evidence.role} Evidence for "${leadSignal.claim}".`,
       skippedBecause: ""
@@ -493,19 +654,22 @@ function evidenceSetSummaryFor(evidenceSet: SignalEvidence[]): EvidenceSetSummar
 }
 
 function evidenceGroupsFor(groups: EvidenceCandidate[][]): EvidenceGroup[] {
-  return groups.map((group) => {
-    const evidenceSet = group.map((item) => item.evidence);
-    const lead = group.find((item) => item.evidence.role === "lead") ?? group[0];
-    return {
-      groupKey: lead?.groupKey ?? "",
-      claim: lead ? claimFor(lead.decision, lead.candidate) : "",
-      evidenceCount: evidenceSet.length,
-      supportingEvidenceCount: evidenceSet.filter((evidence) => evidence.stance === "supports").length,
-      contradictingEvidenceCount: evidenceSet.filter((evidence) => evidence.stance === "contradicts").length,
-      leadEvidenceTitle: lead?.evidence.resourceRef.title ?? "",
-      totalStrength: roundScore(evidenceGroupStrength(group))
-    };
-  });
+  return groups.map(evidenceGroupQuality).sort((a, b) => b.qualityAdjustedScore - a.qualityAdjustedScore);
+}
+
+function leadSignalSelectionReasonFor(evidenceGroups: EvidenceGroup[]): string {
+  const winner = evidenceGroups[0];
+  const runnerUp = evidenceGroups[1];
+
+  if (!winner) {
+    return "No Lead Signal selected because no Evidence group passed promotion.";
+  }
+
+  if (!runnerUp) {
+    return `Selected "${winner.claim}" as the only Evidence group with quality-adjusted score ${winner.qualityAdjustedScore}.`;
+  }
+
+  return `Selected "${winner.claim}" because its quality-adjusted score (${winner.qualityAdjustedScore}) beat "${runnerUp.claim}" (${runnerUp.qualityAdjustedScore}) after diversity, workflow, actionability, repeated-source, and contribution-similarity adjustments.`;
 }
 
 function emptyEvidenceSetSummary(): EvidenceSetSummary {
@@ -536,6 +700,8 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
   }));
   const evidenceSetSummary = evidenceSet.length ? evidenceSetSummaryFor(evidenceSet) : emptyEvidenceSetSummary();
   const evidenceGroups = evidenceGroupsFor(evidenceGroupsRaw);
+  const leadSignalSelectionReason = leadSignalSelectionReasonFor(evidenceGroups);
+  const runnerUpEvidenceGroups = evidenceGroups.slice(1, 4);
   const degenerateEvidenceSet = evidenceSet.length === 1;
   const evidenceFormationReasons = [
     `Evaluated ${candidatePool.length} qualified candidate pool item${candidatePool.length === 1 ? "" : "s"} for Evidence promotion.`,
@@ -551,7 +717,7 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
   const signalFormationReasons = [
     `Evaluated ${promotedEvidence.length} promoted Evidence item${promotedEvidence.length === 1 ? "" : "s"} before Lead Signal formation.`,
     leadSignal
-      ? `Selected "${leadSignal.claim}" as Lead Signal from first-class Evidence using editorial score, workflow impact, actionability, Monday Morning change, DS evidence, and mission match.`
+      ? leadSignalSelectionReason
       : "No Lead Signal formed because no Evidence item survived editorial selection."
   ];
 
@@ -567,6 +733,8 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
     evidencePromotionInputCount: candidatePool.length,
     promotedEvidenceCount: promotedEvidence.length,
     evidenceGroups,
+    leadSignalSelectionReason,
+    runnerUpEvidenceGroups,
     evidencePromotionRejections
   };
 }

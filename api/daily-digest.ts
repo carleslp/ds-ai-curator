@@ -43,6 +43,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
             evidencePromotionInputCount: result.evidencePromotionInputCount,
             promotedEvidenceCount: result.promotedEvidenceCount,
             evidenceGroups: result.evidenceGroups,
+            leadSignalSelectionReason: result.leadSignalSelectionReason,
+            runnerUpEvidenceGroups: result.runnerUpEvidenceGroups,
             evidencePromotionRejections: result.evidencePromotionRejections,
             candidateCount: result.candidateCount,
             filteredCandidateCount: result.filteredCandidateCount,
