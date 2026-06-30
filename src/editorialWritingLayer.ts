@@ -276,8 +276,11 @@ function fallbackSummaryFor(resource: Resource): string {
   const title = cleanResourceTitle(resource.title) || "This item";
   const source = cleanText(resource.source) || "the source";
   const areas = workflowAreasFor(resource);
-  const areaPhrase = areas.length > 0 ? ` The piece touches ${areas.join(", ")}.` : "";
-  return truncateText(`${title} from ${source}.${areaPhrase}`, 280);
+  const areaPhrase =
+    areas.length > 0
+      ? ` Its useful signal is how ${areas.slice(0, 3).join(", ")} now need clearer system context for AI-assisted work.`
+      : " Its useful signal is the move from generic AI output toward explicit Design System context.";
+  return truncateText(`${title} from ${source} is worth reading for the workflow implication, not the headline alone.${areaPhrase}`, 280);
 }
 
 function fallbackWhyItMattersFor(resource: Resource): string {
@@ -411,7 +414,7 @@ export function writeSignalSection(context: SignalContext): string {
   const theme = workflowPhrase(context.themeAnchor);
 
   return safeText(
-    `The shift is no longer about generating more interface. It is about the ${theme || "metadata, documentation quality, review rules, and system context"} AI tools need before they can touch a mature Design System safely.`
+    `The useful shift is from AI as a production shortcut to AI as a test of system readiness. Across ${theme || "metadata, documentation quality, review rules, and system context"}, the advantage goes to teams whose component intent is explicit enough for agents and humans to verify the same way.`
   );
 }
 
@@ -423,8 +426,8 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
   const source = context.sourceMetadata?.source || safeResource.source;
   const contribution = safeText(context.contribution || safeResource.cleanSummary || safeResource.summary);
   const cleanSummary = contribution
-    ? `${title} makes the claim concrete: ${truncateText(contribution, 190)}`
-    : `${title} gives the week’s claim a concrete Design System surface.`;
+    ? `${title} turns the week’s thesis into an operating question: ${truncateText(contribution, 185)}`
+    : `${title} gives the week’s thesis a concrete Design System surface.`;
   const summaryCopy = safeReaderCopy(cleanSummary, fallbackSummaryFor({ ...safeResource, title, source }), 220);
   const whyCopy = safeReaderCopy(
     safeResource.why_it_matters_to_our_team,
@@ -432,7 +435,7 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
     180
   );
   const impactCopy = safeReaderCopy(
-    `${source} points the workflow away from raw generation and toward verification, metadata, and reusable system context.`,
+    `${source} shifts the work from trusting generated output to checking whether metadata, review rules, and reusable context are strong enough to guide it.`,
     fallbackImpactFor({ ...safeResource, title, source }),
     180
   );
@@ -444,7 +447,7 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
     cleanSummary: summaryCopy.value,
     summary: summaryCopy.value,
     why_it_matters_to_our_team: whyCopy.value,
-    why_selected: safeText(`${title} carries the clearest proof of this week’s claim.`),
+    why_selected: safeText(`${title} is the clearest concrete example of this week’s workflow shift.`),
     expected_impact_on_workflow: impactCopy.value
   };
 }
@@ -459,7 +462,7 @@ export function writeSupportingSignalsSection(context: SupportingSignalsContext)
   }
 
   return contributions.slice(0, 3).map((contribution, index) => {
-    const prefixes = ["One pressure point:", "A second angle:", "The practical edge:"];
+    const prefixes = ["The pattern:", "The second read:", "The operating takeaway:"];
     return safeText(truncateText(`${prefixes[index] ?? "Another angle:"} ${contribution}`, 170));
   });
 }
@@ -470,7 +473,7 @@ export function writeSuggestedExperimentSection(context: MoveContext): string {
   const precondition = safeText(context.preconditions[0] || "one high-use component");
 
   return safeText(
-    `Because ${surface} now has higher system risk, start with ${precondition}. ${sentenceCase(truncateText(move, 145))} Capture one rule an internal agent should not have to infer.`
+    `Because ${surface} is becoming an AI input, start with ${precondition}. ${sentenceCase(truncateText(move, 145))} Capture one rule an internal agent should not have to infer.`
   );
 }
 

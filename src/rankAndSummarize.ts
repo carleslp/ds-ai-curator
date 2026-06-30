@@ -60,6 +60,31 @@ type RankedDigest = z.infer<typeof RankedDigestSchema>;
 const openAIModel = process.env.OPENAI_MODEL ?? "gpt-5.5";
 const geminiModel = "gemini-1.5-pro";
 
+const editorialVoiceGuidance = `
+Editorial voice:
+- Write like a premium industry briefing for senior Design System, product, and engineering leaders.
+- Be concise, analytical, and specific. Prefer a clear editorial read over a neutral recap.
+- Open with the thesis, not the topic. Make the reader understand what changed, why now, and what it means for teams.
+- Synthesize across sources. Look for agreements, contradictions, missing pieces, and second-order implications.
+- Treat every selected item as part of the same market/workflow story unless the evidence genuinely does not connect.
+- Use confident language when the source supports it. Avoid vague hedging such as "may be important" or "could be useful" unless uncertainty is the point.
+- Avoid generic AI-summary phrasing: "This article discusses", "delves into", "explores", "highlights the importance of", "in today's fast-paced landscape", "game-changer", "leveraging", and "unlocking".
+- Do not use bullets as a substitute for synthesis inside prose fields. Each field should read like edited newsletter copy.
+- Vary sentence openings and verbs. Do not repeat "shows", "highlights", "underscores", or "matters" across cards.
+- Preserve executive tone: sharp, practical, plain-spoken, and easy to skim.
+
+Field writing rubric:
+- trend_summary: a compact market/workflow read. Name the shift and the implication for DS × AI work.
+- theSignal: 1-2 sentences that connect the week’s strongest sources into one thesis. No article-by-article recap.
+- supportingSignals: three short observations that add nuance: what reinforces the thesis, what genuinely complicates it when the evidence supports tension, and what teams should monitor.
+- summary: answer "what changed?" and "what is the useful takeaway?" Do not merely describe the article.
+- design_system_angle: explain the exact Design System workflow surface affected.
+- why_it_matters_to_our_team: answer "why should we care on Monday morning?" with a practical team consequence.
+- why_selected: state the editorial judgment in reader-facing language, not ranking mechanics.
+- expected_impact_on_workflow: name the behavior, artifact, or review habit likely to change.
+- ignore_risk: begin with the consequence of ignoring the topic, then explain the operational cost.
+`;
+
 function todayIsoDate(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "UTC",
@@ -100,6 +125,8 @@ Only select resources that directly help improve a Figma -> Design Tokens -> Sto
 The digest should feel like a premium weekly briefing written by an experienced editor inside an enterprise Design System team.
 Replace generic summaries with editorial judgment. Explain what changed, why it matters now, and what the team should pay attention to.
 Never write "As Principal Design System Lead" or "I would".
+
+${editorialVoiceGuidance}
 
 Prioritize:
 - AI-assisted Design System workflows

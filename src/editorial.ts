@@ -163,11 +163,11 @@ function whyItMatters(resource: Resource, areas: string[], index: number, contra
   }
 
   const patterns = [
-    `Use this to decide where ${areaPhrase} need clearer machine-readable guidance; the useful clue is ${signal}`,
-    `This can sharpen how ${areaPhrase} are documented and reviewed before an internal agent suggests component changes; the direct clue is ${signal}`,
-    `The practical value is in translating ${areaPhrase} into repeatable system rules rather than one-off AI assistance; the clue is ${signal}`,
-    `This should influence how we expose ${areaPhrase} to designers, engineers, and agents so AI output stays inside system constraints; the signal is ${signal}`,
-    `This gives the team a concrete lens for improving ${areaPhrase} without weakening governance or accessibility review; the strongest clue is ${signal}`
+    `Use this to find where ${areaPhrase} need clearer machine-readable guidance before AI assistance becomes dependable; the useful clue is ${signal}`,
+    `The important change is how ${areaPhrase} are documented and reviewed before an internal agent suggests component changes; the direct clue is ${signal}`,
+    `The practical value is in turning ${areaPhrase} into repeatable system rules rather than one-off AI assistance; the clue is ${signal}`,
+    `This should change how ${areaPhrase} are exposed to designers, engineers, and agents so AI output stays inside system constraints; the signal is ${signal}`,
+    `This gives the team a sharper lens for improving ${areaPhrase} without weakening governance or accessibility review; the strongest clue is ${signal}`
   ];
   return publicationSafeText(truncateText(patterns[index % patterns.length], 220));
 }
@@ -220,9 +220,9 @@ function legacySelectedReason(resource: Resource, areas: string[]): string {
 
 function expectedImpact(resource: Resource, areas: string[]): string {
   return truncateText(
-    `Expected to improve how the team structures ${workflowPhrase(
+    `Use it to improve how the team structures ${workflowPhrase(
       areas
-    )} so designers, engineers, and internal agents can act from the same source of truth.`,
+    )} so designers, engineers, and internal agents can make the same system decision from the same context.`,
     180
   );
 }
@@ -311,7 +311,7 @@ function buildSignal(context: SignalContext, contractMode: boolean): string {
   }
 
   const whyNow = publicationSafeText(truncateText(context.whyNow, 170));
-  const brief = `This week’s strongest shift is that AI-assisted Design System work is becoming constrained less by generation and more by the structured knowledge it can safely consume across ${themePhrase}. The timing matters because ${whyNow}`;
+  const brief = `This week’s strongest shift is that AI-assisted Design System work is becoming constrained less by generation quality than by the structured knowledge it can safely consume across ${themePhrase}. The timing matters because ${whyNow} The strategic implication is simple: teams that make component intent explicit will review AI output faster and with fewer governance gaps.`;
 
   return polishSignal(brief);
 }
@@ -330,13 +330,13 @@ function buildSupportingSignals(context: SupportingSignalsContext, contractMode:
     .join(" ")}`.toLowerCase();
   const signals = [
     supportingText.includes("agent") || supportingText.includes("mcp") || supportingText.includes("ai")
-      ? "Agent-readable component knowledge is becoming part of the Design System surface."
-      : "The useful AI work is narrowing toward operational workflow changes, not broad productivity claims.",
+      ? "The pattern is clear: agent-readable component knowledge is becoming part of the Design System surface."
+      : "The useful AI work is narrowing toward operational workflow change, not broad productivity claims.",
     supportingText.includes("figma") || supportingText.includes("react") || supportingText.includes("design-to-code")
-      ? "Figma intent and React implementation need a tighter handshake before generation can be trusted."
+      ? "The fragile link is still the handoff: Figma intent and React implementation need tighter shared context before generation can be trusted."
       : "The strongest signals make system decisions easier to verify across design and engineering.",
     supportingText.includes("qa") || supportingText.includes("accessibility") || supportingText.includes("storybook")
-      ? "Storybook, accessibility, and QA signals are becoming the guardrails for assisted delivery."
+      ? "The control point is shifting toward Storybook, accessibility, and QA signals that can block weak assisted delivery."
       : "Documentation is becoming an automation input, not a cleanup task."
   ];
 
