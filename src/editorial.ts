@@ -145,6 +145,58 @@ function workflowPhrase(areas: string[]): string {
   return `${areas.slice(0, -1).join(", ")}, and ${areas[areas.length - 1]}`;
 }
 
+function uniqueOrdered(values: string[]): string[] {
+  return Array.from(new Set(values.map(cleanText).filter(Boolean)));
+}
+
+function deliberationAreas(contexts: EditorialContexts, resources: Resource[]): string[] {
+  const areas = uniqueOrdered([
+    ...contexts.impactContext.workflowSurface,
+    ...resources.flatMap((resource) => resource.affected_workflow_areas ?? affectedWorkflowAreas(resource))
+  ]);
+
+  return areas.length ? areas.slice(0, 4) : ["Documentation", "Internal Design System Agent"];
+}
+
+function hasText(value: string, pattern: RegExp): boolean {
+  return pattern.test(value.toLowerCase());
+}
+
+function buildEditorialDeliberation(contexts: EditorialContexts, resources: Resource[], editorsPick: Resource | null) {
+  const areas = deliberationAreas(contexts, resources);
+  const resourceBody = resources.map(resourceText).join(" ");
+  const supportingContributions = contexts.supportingSignalsContext.contributions.map(publicationSafeText).filter(Boolean);
+  const theme = contexts.signalContext.themeAnchor || workflowPhrase(areas.slice(0, 3));
+  const actualChange = hasText(resourceBody, /agent|mcp|machine-readable|metadata|docgen|manifest/)
+    ? `${theme} is moving from human-readable reference material to operational context for AI-assisted work`
+    : `${theme} is becoming the place where AI-assisted work is either constrained by system rules or left to guess`;
+  const whyNow = publicationSafeText(
+    truncateText(
+      contexts.signalContext.whyNow ||
+        "the week’s strongest sources point to practical workflow pressure rather than broad AI novelty",
+      170
+    )
+  );
+  const leadTitle = cleanText(editorsPick?.editorialTitle || editorsPick?.title || contexts.editorsPickContext.sourceMetadata?.title || "");
+  const leadReason = leadTitle
+    ? `${leadTitle} makes the shift concrete because it shows where the abstract trend touches an owned workflow.`
+    : "The lead item makes the shift concrete because it connects the abstract trend to an owned workflow.";
+  const materialContributions = supportingContributions.filter((contribution) =>
+    areas.some((area) => contribution.toLowerCase().includes(area.toLowerCase().split(" ")[0]))
+  );
+  const interestingButNonMaterial = supportingContributions.find((contribution) => !materialContributions.includes(contribution)) || "";
+  const teamChange = `Mature teams need ${workflowPhrase(areas.slice(0, 3))} to carry enough intent for designers, engineers, and agents to reach the same decision.`;
+
+  return {
+    actualChange,
+    whyNow,
+    leadReason,
+    interestingButNonMaterial,
+    teamChange,
+    areas
+  };
+}
+
 function whyItMatters(resource: Resource, areas: string[], index: number, contractMode: boolean): string {
   const signal = truncateText(
     resource.directDesignSystemEvidence || resource.design_system_angle || resource.cleanSummary || resource.summary,
@@ -218,16 +270,17 @@ function legacySelectedReason(resource: Resource, areas: string[]): string {
   );
 }
 
-function expectedImpact(resource: Resource, areas: string[]): string {
+function expectedImpact(resource: Resource, areas: string[], deliberation?: ReturnType<typeof buildEditorialDeliberation>): string {
   return truncateText(
-    `Use it to improve how the team structures ${workflowPhrase(
-      areas
-    )} so designers, engineers, and internal agents can make the same system decision from the same context.`,
+    deliberation?.teamChange ||
+      `Use it to improve how the team structures ${workflowPhrase(
+        areas
+      )} so designers, engineers, and internal agents can make the same system decision from the same context.`,
     180
   );
 }
 
-function enrichResources(resources: Resource[], contractMode = false): Resource[] {
+function enrichResources(resources: Resource[], contractMode = false, deliberation?: ReturnType<typeof buildEditorialDeliberation>): Resource[] {
   return resources.map((resource, index) => {
     const areas = resource.affected_workflow_areas?.length ? resource.affected_workflow_areas : affectedWorkflowAreas(resource);
 
@@ -239,7 +292,7 @@ function enrichResources(resources: Resource[], contractMode = false): Resource[
       summary: contractMode ? publicationSafeText(truncateText(resource.summary, 280)) : truncateText(resource.summary, 280),
       why_it_matters_to_our_team: whyItMatters(resource, areas, index, contractMode),
       why_selected: resource.why_selected ?? (contractMode ? selectedReason(resource, areas) : legacySelectedReason(resource, areas)),
-      expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas),
+      expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas, deliberation),
       who_should_read: resource.who_should_read ?? audienceFor(resource, areas),
       estimated_reading_time: resource.estimated_reading_time ?? readingTime(resource),
       ignore_risk: resource.ignore_risk ?? ignoreRisk(resource, areas),
@@ -249,7 +302,12 @@ function enrichResources(resources: Resource[], contractMode = false): Resource[
   });
 }
 
-function applyEditorsPickContext(resource: Resource | null, context: EditorsPickContext, contractMode: boolean): Resource | null {
+function applyEditorsPickContext(
+  resource: Resource | null,
+  context: EditorsPickContext,
+  contractMode: boolean,
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>
+): Resource | null {
   if (!resource) return null;
 
   const contribution = context.contribution || resource.cleanSummary || resource.summary;
@@ -272,11 +330,12 @@ function applyEditorsPickContext(resource: Resource | null, context: EditorsPick
     ...resource,
     cleanSummary: publicationSafeText(truncateText(contribution, 280)),
     summary: publicationSafeText(truncateText(contribution, 280)),
-    why_selected: publicationSafeText(
-      truncateText(`This is the clearest concrete example of the shift: ${context.claim}`, 160)
-    ),
+    why_selected: publicationSafeText(truncateText(deliberation?.leadReason || `This is the clearest concrete example of the shift: ${context.claim}`, 160)),
     expected_impact_on_workflow: publicationSafeText(
-      truncateText(`Useful because ${source} shows how an AI-enabled Design System workflow becomes concrete.`, 180)
+      truncateText(
+        deliberation?.teamChange || `Useful because ${source} shows how an AI-enabled Design System workflow becomes concrete.`,
+        180
+      )
     )
   };
 }
@@ -295,7 +354,7 @@ export function selectEditorsPick(resources: Resource[]): Resource | null {
   })[0];
 }
 
-function buildSignal(context: SignalContext, contractMode: boolean): string {
+function buildSignal(context: SignalContext, contractMode: boolean, deliberation?: ReturnType<typeof buildEditorialDeliberation>): string {
   if (!context.claim || context.claim === "No strong DS x AI signal cleared the bar today.") {
     return contractMode
       ? "No strong shift cleared the bar today. The useful takeaway is restraint: weak AI commentary creates false urgency when it never touches Figma libraries, Storybook metadata, React implementation, governance, documentation, accessibility, or agent-readable QA."
@@ -311,12 +370,18 @@ function buildSignal(context: SignalContext, contractMode: boolean): string {
   }
 
   const whyNow = publicationSafeText(truncateText(context.whyNow, 170));
-  const brief = `This week’s strongest shift is that AI-assisted Design System work is becoming constrained less by generation quality than by the structured knowledge it can safely consume across ${themePhrase}. The timing matters because ${whyNow} The strategic implication is simple: teams that make component intent explicit will review AI output faster and with fewer governance gaps.`;
+  const change = deliberation?.actualChange || `AI-assisted Design System work is becoming constrained less by generation quality than by the structured knowledge it can safely consume across ${themePhrase}`;
+  const timing = deliberation?.whyNow || whyNow;
+  const brief = `This week’s strongest shift is that ${change}. The timing matters because ${timing}; teams that make component intent explicit will review AI output faster and with fewer governance gaps.`;
 
   return polishSignal(brief);
 }
 
-function buildSupportingSignals(context: SupportingSignalsContext, contractMode: boolean): string[] {
+function buildSupportingSignals(
+  context: SupportingSignalsContext,
+  contractMode: boolean,
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>
+): string[] {
   if (context.representativeSupportingEvidence.length === 0) {
     return [
       "Most available items were too broad for a mature Design System team.",
@@ -340,16 +405,27 @@ function buildSupportingSignals(context: SupportingSignalsContext, contractMode:
       : "Documentation is becoming an automation input, not a cleanup task."
   ];
 
-  return signals.slice(0, 3);
+  if (deliberation?.interestingButNonMaterial) {
+    signals[1] = truncateText(
+      `The useful distinction is what changes the thesis versus what merely adds color: ${deliberation.interestingButNonMaterial}`,
+      170
+    );
+  }
+
+  return signals.map(publicationSafeText).slice(0, 3);
 }
 
-function buildSuggestedExperiment(context: MoveContext, contractMode: boolean): string {
+function buildSuggestedExperiment(
+  context: MoveContext,
+  contractMode: boolean,
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>
+): string {
   if (!context.opportunityMove) {
     return "In 30 minutes, audit one high-use component and add a checklist of what an internal Design System Agent and Internal QA Agent would need: Figma variant intent, Storybook examples, React/React Native props, accessibility states, Azure DevOps link, and governance rule.";
   }
 
   const experiment = contractMode
-    ? `Because ${context.targetSurface} now depends on clearer system assumptions, ${truncateText(
+    ? `Because ${workflowPhrase(deliberation?.areas?.slice(0, 2) ?? [context.targetSurface])} now depends on clearer system assumptions, ${truncateText(
         context.opportunityMove,
         150
       )} Start with ${context.preconditions[0] ?? "one high-use component"} and capture one gap an internal agent should not have to infer.`
@@ -418,24 +494,28 @@ export function withEditorialSections(digest: DigestInput, editorialContexts?: E
       editorsPick: provisionalEditorsPick,
       resources
     });
-  const editorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext, contractMode);
-  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext, contractMode));
+  const deliberation = buildEditorialDeliberation(contexts, resources, provisionalEditorsPick);
+  const deliberatedResources = enrichResources(resources, contractMode, deliberation);
+  const deliberatedEditorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext, contractMode, deliberation);
+  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext, contractMode, deliberation));
   const supportingSignals =
-    digest.supportingSignals ?? digest.thisWeeksSignals ?? buildSupportingSignals(contexts.supportingSignalsContext, contractMode);
+    digest.supportingSignals ??
+    digest.thisWeeksSignals ??
+    buildSupportingSignals(contexts.supportingSignalsContext, contractMode, deliberation);
 
   return {
     date: digest.date,
     trend_summary: digest.trend_summary,
     theSignal,
     executiveBrief: digest.executiveBrief ?? theSignal,
-    editorsPick,
+    editorsPick: deliberatedEditorsPick,
     supportingSignals,
     thisWeeksSignals: supportingSignals,
-    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext, contractMode),
+    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext, contractMode, deliberation),
     teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(contexts.impactContext, contractMode),
     nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(contexts.horizonContext, contractMode),
     ...(digest.leadSignal !== undefined ? { leadSignal: digest.leadSignal } : {}),
-    resources
+    resources: deliberatedResources
   };
 }
 
