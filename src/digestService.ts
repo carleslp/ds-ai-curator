@@ -15,6 +15,11 @@ import {
   createEditorialContextDebug,
   type EditorialContextDebug
 } from "./editorialContexts.js";
+import {
+  buildEditorialBrief,
+  emptyEditorialBrief,
+  type EditorialBrief
+} from "./editorialBrief.js";
 import { validateSectionContracts, type SectionContractsDebug } from "./editorialContracts.js";
 import {
   applyEditorialWritingLayer,
@@ -160,6 +165,7 @@ type DailyDigestResult = {
   renderedResourceTitles: string[];
   evidenceReasoning: EvidenceReasoningDebug;
   narrativeExtraction: NarrativeExtraction;
+  editorialBrief: EditorialBrief;
   editorialContexts: EditorialContextDebug["editorialContexts"];
   contextBoundaryViolations: string[];
   sectionContracts: SectionContractsDebug["sectionContracts"];
@@ -562,7 +568,8 @@ function applyRepresentativeRenderingAssembly(
   representativeLeadEvidence: SignalEvidence | null,
   representativeSupportingEvidence: SignalEvidence[],
   leadSignal: CandidateSignal | null,
-  narrativeExtraction: NarrativeExtraction
+  narrativeExtraction: NarrativeExtraction,
+  editorialBrief: EditorialBrief
 ): { digest: Digest } & EditorialWritingLayerDebug {
   if (!representativeLeadEvidence) {
     return {
@@ -641,7 +648,8 @@ function applyRepresentativeRenderingAssembly(
       ...(leadSignal !== null ? { leadSignal } : {})
     },
     contexts,
-    narrativeExtraction
+    narrativeExtraction,
+    editorialBrief
   );
 
   return applyEditorialWritingLayer(assembledDigest, contexts, leadSignal);
@@ -746,6 +754,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let renderedResourceTitles: string[] = [];
   let evidenceReasoning: EvidenceReasoningDebug = emptyEvidenceReasoning();
   let narrativeExtraction: NarrativeExtraction = emptyNarrativeExtraction();
+  let editorialBrief: EditorialBrief = emptyEditorialBrief();
   let supportingResourceRanking = emptySupportingResourceRanking();
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
@@ -791,6 +800,12 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       narrativeExtraction = extractNarrativeFrame({
         leadSignal,
         editorialDeliberation,
+        evidenceReasoning,
+        representativeLeadEvidence,
+        representativeSupportingEvidence
+      });
+      editorialBrief = buildEditorialBrief({
+        narrativeFrame: narrativeExtraction,
         evidenceReasoning,
         representativeLeadEvidence,
         representativeSupportingEvidence
@@ -845,6 +860,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         evidenceReasoning,
         narrativeExtraction,
+        editorialBrief,
         ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(fallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -872,7 +888,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         representativeLeadEvidence,
         representativeSupportingEvidence,
         leadSignal,
-        narrativeExtraction
+        narrativeExtraction,
+        editorialBrief
       );
       const editorialDigest = applyLeadSignal(editorialAssembly.digest, leadSignal);
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
@@ -913,6 +930,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles: editorialDigest.resources.map((resource) => resource.title),
         evidenceReasoning,
         narrativeExtraction,
+        editorialBrief,
         ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(editorialDigest, leadSignal),
         editorialWritingLayer: editorialAssembly.editorialWritingLayer,
@@ -939,7 +957,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         representativeLeadEvidence,
         representativeSupportingEvidence,
         leadSignal,
-        narrativeExtraction
+        narrativeExtraction,
+        editorialBrief
       );
       const fallbackDigest = applyLeadSignal(fallbackAssembly.digest, leadSignal);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
@@ -978,6 +997,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceTitles: fallbackDigest.resources.map((resource) => resource.title),
           evidenceReasoning,
           narrativeExtraction,
+          editorialBrief,
           ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(fallbackDigest, leadSignal),
           editorialWritingLayer: fallbackAssembly.editorialWritingLayer,
@@ -1032,6 +1052,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceTitles,
           evidenceReasoning,
           narrativeExtraction,
+          editorialBrief,
           ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(emptyDigest, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
@@ -1085,6 +1106,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           renderedResourceTitles,
           evidenceReasoning,
           narrativeExtraction,
+          editorialBrief,
           ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
@@ -1136,6 +1158,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         evidenceReasoning,
         narrativeExtraction,
+        editorialBrief,
         ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1192,6 +1215,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         evidenceReasoning,
         narrativeExtraction,
+        editorialBrief,
         ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emptyDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1245,6 +1269,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         renderedResourceTitles,
         evidenceReasoning,
         narrativeExtraction,
+        editorialBrief,
         ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1297,6 +1322,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       renderedResourceTitles,
       evidenceReasoning,
       narrativeExtraction,
+      editorialBrief,
       ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
       ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
       ...emptyEditorialWritingLayerDebug(),

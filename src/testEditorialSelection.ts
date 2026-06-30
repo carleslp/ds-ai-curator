@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
+import { buildEditorialBrief } from "./editorialBrief.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
 import { extractNarrativeFrame } from "./narrativeExtraction.js";
@@ -442,6 +443,37 @@ assert.ok(
     `${narrativeFrame.headline} ${narrativeFrame.oldAssumption} ${narrativeFrame.newReality} ${narrativeFrame.narrativeThesis} ${narrativeFrame.readerTakeaway}`
   ),
   "Narrative frame reader-facing fields should avoid internal machinery vocabulary."
+);
+
+const editorialBrief = buildEditorialBrief({
+  narrativeFrame,
+  evidenceReasoning: evidenceReasoningResult.evidenceReasoning,
+  representativeLeadEvidence: evidenceReasoningResult.representativeLeadEvidence,
+  representativeSupportingEvidence: evidenceReasoningResult.representativeSupportingEvidence
+});
+
+assert.equal(editorialBrief.thesis, narrativeFrame.narrativeThesis, "Editorial Brief should inherit the narrative thesis.");
+assert.equal(editorialBrief.narrativeFrame, narrativeFrame, "Editorial Brief should carry the internal Narrative Extraction frame.");
+assert.ok(editorialBrief.editorialPosition.length > 0, "Editorial Brief should form an editorial position for the writer.");
+assert.ok(editorialBrief.leadEvidence.length > 0, "Editorial Brief should preserve the lead proof.");
+assert.ok(editorialBrief.consequences.immediate.length > 0, "Editorial Brief should define the immediate consequence.");
+assert.ok(editorialBrief.experiment.length > 0, "Editorial Brief should define a concrete experiment.");
+assert.ok(editorialBrief.discussionQuestions.length >= 2, "Editorial Brief should provide discussion prompts.");
+assert.ok(editorialBrief.watchlist.length >= 2, "Editorial Brief should provide a watchlist.");
+assert.equal(
+  editorialBrief.evidenceMapping.length,
+  1 + evidenceReasoningResult.representativeSupportingEvidence.length,
+  "Editorial Brief should map each rendered Evidence item to a resource-card role."
+);
+assert.ok(
+  editorialBrief.evidenceMapping.every((mapping) => mapping.evidentialRole.length > 0 && mapping.supportsBrief.length > 0),
+  "Every Editorial Brief evidence mapping should explain how the resource supports the argument."
+);
+assert.ok(
+  !/\b(cluster|score|candidate|evidence reasoning|pipeline|selected because|thesis engine)\b/i.test(
+    `${editorialBrief.thesis} ${editorialBrief.editorialPosition} ${editorialBrief.leadEvidence} ${editorialBrief.supportingEvidence.join(" ")} ${editorialBrief.consequences.immediate} ${editorialBrief.experiment}`
+  ),
+  "Editorial Brief reader-facing inputs should avoid internal machinery vocabulary."
 );
 
 const deliberationResult = selectEditorialThesis([
