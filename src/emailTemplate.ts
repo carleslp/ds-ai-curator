@@ -198,7 +198,7 @@ function renderEditorsPick(editorsPick: Resource | null): string {
     : "";
   const date = cleanText(editorsPick.published_date || editorsPick.date || "Recent");
   const detailRows = [
-    ["Why this was selected", editorsPick.why_selected],
+    ["Why this is evidence", editorsPick.why_selected],
     ["Expected impact on our workflow", editorsPick.expected_impact_on_workflow],
     ["Who should read it", editorsPick.who_should_read],
     ["Estimated reading time", editorsPick.estimated_reading_time]

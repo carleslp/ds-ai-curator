@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
-import { buildEditorialBrief } from "./editorialBrief.js";
+import { buildEditorialBrief, emptyEditorialBrief } from "./editorialBrief.js";
 import { evaluateEditorialQualification, qualifyEditorialCandidates } from "./editorialQualification.js";
 import { assignEditorialRoles } from "./editorialRoles.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
@@ -248,6 +248,49 @@ assert.ok(
   "Every candidate should receive possible editorial roles."
 );
 assert.ok(editorialRoles.summary.notes.some((note) => /does not change selection/i.test(note)));
+const roleLearningBrief = {
+  ...emptyEditorialBrief(),
+  thesis: "Design System documentation is shifting from static reference to AI-readable operational knowledge.",
+  narrativeHeadline: "AI-readable documentation becomes Design System infrastructure",
+  editorialPosition: "Senior Design System teams need writing that teaches both people and agents how components behave.",
+  newReality: "Component documentation is becoming structured enough for agents to act on.",
+  whyNow: "Storybook metadata and practitioner writing are converging around machine-readable component context."
+};
+const roleLearningRecommendation = selectLearningRecommendation({
+  editorialBrief: roleLearningBrief,
+  thesis: null,
+  evidence: [],
+  qualifiedResources: roleSelection.qualifiedCandidates,
+  editorialQualification: roleQualification.editorialQualification,
+  allResources: roleFixtureCandidates,
+  selectionDecisions: roleSelection.decisions,
+  editorialRoles
+});
+
+assert.equal(
+  roleLearningRecommendation.recommendedReading?.title,
+  "Who Are We Writing For Now?",
+  "Recommended Reading should surface the strongest reader-facing Teaching candidate."
+);
+assert.notEqual(
+  roleLearningRecommendation.recommendedReading?.title,
+  "Storybook release: v10.5.0-alpha.7",
+  "Storybook release evidence should not become Recommended Reading."
+);
+assert.ok(
+  roleLearningRecommendation.teachingCandidatesConsidered.some((candidate) => candidate.title === "Who Are We Writing For Now?"),
+  "Debug should show the Teaching candidate considered for reader-facing recommendation."
+);
+assert.ok(
+  roleLearningRecommendation.teachingCandidatesRejected.some((candidate) =>
+    candidate.title === "Storybook release: v10.5.0-alpha.7" && /not Teaching|Evidence|Watchlist|Recommended Reading/i.test(candidate.reason)
+  ),
+  "Debug should explain why Evidence/Watchlist material was separated from Teaching."
+);
+assert.ok(
+  !/no qualified resources were available/i.test(roleLearningRecommendation.nullReason),
+  "Learning Recommendation should not claim no qualified resources were available when a Teaching candidate exists."
+);
 const thesisInput = [
   candidate({
     title: "Reasoning for Mobile User Experience with LLM Agents",

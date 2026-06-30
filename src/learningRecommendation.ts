@@ -1,5 +1,7 @@
 import type { CandidateResource } from "./collectCandidates.js";
 import type { EditorialBrief } from "./editorialBrief.js";
+import type { EditorialQualification } from "./editorialQualification.js";
+import type { EditorialRoleAssignment, EditorialRoleDebug, EditorialRoleFit } from "./editorialRoles.js";
 import type { EditorialSelectionDecision } from "./editorialSelection.js";
 import type { CandidateSignal, SignalEvidence } from "./editorialThesis.js";
 import { cleanText, truncateText } from "./textUtils.js";
@@ -19,6 +21,11 @@ export type LearningRecommendation = {
 
 export type LearningRecommendationDebug = {
   recommendation: LearningRecommendation | null;
+  recommendedReading: LearningRecommendation | null;
+  recommendedReadingSelectionReason: string;
+  teachingCandidatesConsidered: TeachingCandidateDebug[];
+  teachingCandidatesRejected: TeachingCandidateRejectionDebug[];
+  evidenceVsTeachingSeparation: string;
   whyItWon: string;
   alternativesLost: Array<{
     title: string;
@@ -32,12 +39,35 @@ export type LearningRecommendationDebug = {
   nullReason: string;
 };
 
+export type TeachingCandidateDebug = {
+  title: string;
+  url: string;
+  source: string;
+  primaryRole: EditorialRoleAssignment["primaryRole"];
+  teachingFit: EditorialRoleFit["fit"];
+  qualified: boolean;
+  connectedToThesis: boolean;
+  score: number;
+  reason: string;
+};
+
+export type TeachingCandidateRejectionDebug = {
+  title: string;
+  url: string;
+  source: string;
+  primaryRole: EditorialRoleAssignment["primaryRole"];
+  reason: string;
+};
+
 type LearningRecommendationInput = {
   editorialBrief: EditorialBrief;
   thesis: CandidateSignal | null;
   evidence: SignalEvidence[];
   qualifiedResources: CandidateResource[];
+  editorialQualification?: EditorialQualification[];
+  allResources?: CandidateResource[];
   selectionDecisions: EditorialSelectionDecision[];
+  editorialRoles?: EditorialRoleDebug;
 };
 
 type ScoredLearningCandidate = {
@@ -47,6 +77,16 @@ type ScoredLearningCandidate = {
   teachingScore: number;
   avoidPenalty: number;
   reasons: string[];
+};
+
+type RoleScoredTeachingCandidate = {
+  assignment: EditorialRoleAssignment;
+  candidate: CandidateResource;
+  teachingFit: EditorialRoleFit;
+  qualified: boolean;
+  connectedToThesis: boolean;
+  score: number;
+  reason: string;
 };
 
 const preferredCategories = new Set<CandidateResource["sourceCategory"]>(["Practical", "Talk", "Community"]);
@@ -113,6 +153,11 @@ const stopWords = new Set([
 export function emptyLearningRecommendation(): LearningRecommendationDebug {
   return {
     recommendation: null,
+    recommendedReading: null,
+    recommendedReadingSelectionReason: "",
+    teachingCandidatesConsidered: [],
+    teachingCandidatesRejected: [],
+    evidenceVsTeachingSeparation: "",
     whyItWon: "",
     alternativesLost: [],
     nullConsidered: true,
@@ -172,6 +217,248 @@ function countMatchingTerms(text: string, terms: Set<string>): number {
 
 function hasAny(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
+}
+
+function baseLearningDebug(overrides: Partial<LearningRecommendationDebug>): LearningRecommendationDebug {
+  const recommendation = overrides.recommendation ?? null;
+  return {
+    recommendation,
+    recommendedReading: overrides.recommendedReading ?? recommendation,
+    recommendedReadingSelectionReason: overrides.recommendedReadingSelectionReason ?? overrides.whyItWon ?? "",
+    teachingCandidatesConsidered: overrides.teachingCandidatesConsidered ?? [],
+    teachingCandidatesRejected: overrides.teachingCandidatesRejected ?? [],
+    evidenceVsTeachingSeparation:
+      overrides.evidenceVsTeachingSeparation ??
+      "Recommended Reading is reserved for Teaching candidates; Evidence and Watchlist candidates remain proof signals.",
+    whyItWon: overrides.whyItWon ?? "",
+    alternativesLost: overrides.alternativesLost ?? [],
+    nullConsidered: overrides.nullConsidered ?? true,
+    nullReason: overrides.nullReason ?? ""
+  };
+}
+
+function candidateByUrl(resources: CandidateResource[]): Map<string, CandidateResource> {
+  return new Map(resources.map((resource) => [normalizeUrl(resource.url), resource]));
+}
+
+function qualificationSet(resources: CandidateResource[]): Set<string> {
+  return new Set(resources.map((resource) => normalizeUrl(resource.url)));
+}
+
+function qualifiedUrlSet(input: LearningRecommendationInput): Set<string> {
+  if (input.editorialQualification) {
+    return new Set(
+      input.editorialQualification
+        .filter((qualification) => qualification.qualificationDecision === "qualified")
+        .map((qualification) => normalizeUrl(qualification.url))
+    );
+  }
+
+  return qualificationSet(input.qualifiedResources);
+}
+
+function connectedResourceUrls(input: LearningRecommendationInput): Set<string> {
+  const urls = new Set<string>();
+  if (input.thesis?.resourceUrl) urls.add(normalizeUrl(input.thesis.resourceUrl));
+  for (const evidence of input.evidence) {
+    urls.add(normalizeUrl(evidence.resourceRef.url));
+  }
+  for (const decision of input.selectionDecisions) {
+    if (decision.selectionReason && !decision.rejectionReason) {
+      urls.add(normalizeUrl(decision.url));
+    }
+  }
+  return urls;
+}
+
+function isAvoidedReaderFormat(candidate: CandidateResource): boolean {
+  const text = textForCandidate(candidate);
+  return (
+    hasAny(text, avoidedTerms) ||
+    candidate.sourceCategory === "Official" ||
+    text.includes("github.com") && text.includes("/releases") ||
+    text.includes("documentation index") ||
+    text.includes("docs index") ||
+    text.includes("help center search")
+  );
+}
+
+function teachingFitFor(assignment: EditorialRoleAssignment): EditorialRoleFit | null {
+  return (
+    assignment.possibleEditorialRoles.find((role) => role.role === "Teaching" && role.shouldBeReaderFacing) ?? null
+  );
+}
+
+function roleFitScore(fit: EditorialRoleFit["fit"]): number {
+  if (fit === "strong") return 80;
+  if (fit === "medium") return 55;
+  return 25;
+}
+
+function scoreRoleTeachingCandidate(
+  assignment: EditorialRoleAssignment,
+  candidate: CandidateResource,
+  teachingFit: EditorialRoleFit,
+  qualified: boolean,
+  connectedToThesis: boolean
+): RoleScoredTeachingCandidate {
+  const qualificationBonus = qualified ? 24 : 0;
+  const connectionBonus = connectedToThesis ? 12 : 0;
+  const readerValue = Math.round(candidate.readerValue * 0.25 + candidate.learningValue * 0.35);
+  const score = roleFitScore(teachingFit.fit) + qualificationBonus + connectionBonus + readerValue;
+  const reasonParts = [
+    `${teachingFit.fit} Teaching fit`,
+    qualified ? "qualified by Editorial Qualification" : "not in the qualified set",
+    connectedToThesis ? "connected to the thesis/evidence set" : "not directly connected to selected evidence"
+  ];
+
+  return {
+    assignment,
+    candidate,
+    teachingFit,
+    qualified,
+    connectedToThesis,
+    score,
+    reason: reasonParts.join("; ")
+  };
+}
+
+function selectRoleBasedRecommendation(input: LearningRecommendationInput): LearningRecommendationDebug | null {
+  if (!input.editorialRoles) return null;
+
+  const allResources = uniqueQualifiedResources([...(input.allResources ?? []), ...input.qualifiedResources]);
+  const resourcesByUrl = candidateByUrl(allResources);
+  const qualifiedUrls = qualifiedUrlSet(input);
+  const connectedUrls = connectedResourceUrls(input);
+  const considered: TeachingCandidateDebug[] = [];
+  const rejected: TeachingCandidateRejectionDebug[] = [];
+  const scored: RoleScoredTeachingCandidate[] = [];
+
+  for (const assignment of input.editorialRoles.roleAssignments) {
+    const candidate = resourcesByUrl.get(normalizeUrl(assignment.url));
+    const teachingFit = teachingFitFor(assignment);
+
+    if (!candidate) {
+      rejected.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        reason: "Skipped because the source resource was not available to the recommendation engine."
+      });
+      continue;
+    }
+
+    if (!teachingFit) {
+      rejected.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        reason: `Skipped because its reader-facing role is ${assignment.primaryRole}, not Teaching.`
+      });
+      continue;
+    }
+
+    if (assignment.primaryRole !== "Teaching") {
+      rejected.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        reason: "Skipped because Recommended Reading requires Teaching as the primary role."
+      });
+      continue;
+    }
+
+    const qualified = qualifiedUrls.has(normalizeUrl(candidate.url));
+    if (!qualified) {
+      rejected.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        reason: "Skipped because it did not pass Editorial Qualification."
+      });
+      continue;
+    }
+
+    if (isAvoidedReaderFormat(candidate)) {
+      rejected.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        reason: "Skipped because release notes, docs, RFCs, and reference formats should not become recommended reading."
+      });
+      continue;
+    }
+
+    const connectedToThesis = connectedUrls.has(normalizeUrl(candidate.url)) || countMatchingTerms(textForCandidate(candidate), relationTerms(input)) >= 2;
+    const roleScored = scoreRoleTeachingCandidate(assignment, candidate, teachingFit, qualified, connectedToThesis);
+    scored.push(roleScored);
+    considered.push({
+      title: assignment.title,
+      url: assignment.url,
+      source: assignment.source,
+      primaryRole: assignment.primaryRole,
+      teachingFit: teachingFit.fit,
+      qualified,
+      connectedToThesis,
+      score: roleScored.score,
+      reason: roleScored.reason
+    });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0] ?? null;
+  const nullReason = "No qualified reader-facing Teaching candidate was available, so Recommended Reading was omitted instead of falling back to evidence, docs, or changelogs.";
+
+  if (!best) {
+    return baseLearningDebug({
+      recommendation: null,
+      recommendedReading: null,
+      recommendedReadingSelectionReason: nullReason,
+      teachingCandidatesConsidered: considered,
+      teachingCandidatesRejected: rejected,
+      whyItWon: "",
+      alternativesLost: [],
+      nullConsidered: true,
+      nullReason
+    });
+  }
+
+  const recommendation = recommendationFor(
+    {
+      candidate: best.candidate,
+      score: best.score,
+      relationScore: best.connectedToThesis ? 12 : 0,
+      teachingScore: roleFitScore(best.teachingFit.fit),
+      avoidPenalty: 0,
+      reasons: [best.reason, best.teachingFit.reason]
+    },
+    input
+  );
+  const whyItWon = `${best.candidate.title} became Recommended Reading because Editorial Roles classify it as reader-facing Teaching, while Evidence and Watchlist items remain proof signals.`;
+
+  return baseLearningDebug({
+    recommendation,
+    recommendedReading: recommendation,
+    recommendedReadingSelectionReason: whyItWon,
+    teachingCandidatesConsidered: considered,
+    teachingCandidatesRejected: rejected,
+    whyItWon,
+    alternativesLost: scored.slice(1, 6).map((item) => ({
+      title: item.candidate.title,
+      url: item.candidate.url,
+      source: item.candidate.source,
+      sourceCategory: item.candidate.sourceCategory,
+      score: item.score,
+      reason: item.reason
+    })),
+    nullConsidered: true,
+    nullReason: "Null was considered because Recommended Reading should disappear rather than fall back to evidence, docs, or changelogs."
+  });
 }
 
 function formatFor(candidate: CandidateResource): string {
@@ -268,14 +555,17 @@ function recommendationFor(scored: ScoredLearningCandidate, input: LearningRecom
 
 export function selectLearningRecommendation(input: LearningRecommendationInput): LearningRecommendationDebug {
   if (!input.editorialBrief.thesis && !input.thesis?.claim) {
-    return {
+    return baseLearningDebug({
       recommendation: null,
       whyItWon: "",
       alternativesLost: [],
       nullConsidered: true,
       nullReason: "Learning Recommendation returned null because no editorial thesis was available to teach."
-    };
+    });
   }
+
+  const roleBasedRecommendation = selectRoleBasedRecommendation(input);
+  if (roleBasedRecommendation) return roleBasedRecommendation;
 
   const qualified = uniqueQualifiedResources(input.qualifiedResources);
   if (qualified.length === 0) {
@@ -290,7 +580,7 @@ export function selectLearningRecommendation(input: LearningRecommendationInput)
   const bestIsAvoidedOfficial = best.candidate.sourceCategory === "Official" && best.avoidPenalty > 0;
 
   if (!best || best.score < threshold || bestIsAvoidedOfficial) {
-    return {
+    return baseLearningDebug({
       recommendation: null,
       whyItWon: "",
       alternativesLost: scored.slice(0, 5).map((item) => ({
@@ -303,11 +593,13 @@ export function selectLearningRecommendation(input: LearningRecommendationInput)
       })),
       nullConsidered: true,
       nullReason
-    };
+    });
   }
 
-  return {
-    recommendation: recommendationFor(best, input),
+  const recommendation = recommendationFor(best, input);
+
+  return baseLearningDebug({
+    recommendation,
     whyItWon: `${best.candidate.title} won because it best balances clarity, learning value, and relationship to the thesis, independent of Evidence selection.`,
     alternativesLost: scored.slice(1, 6).map((item) => ({
       title: item.candidate.title,
@@ -319,5 +611,5 @@ export function selectLearningRecommendation(input: LearningRecommendationInput)
     })),
     nullConsidered: true,
     nullReason
-  };
+  });
 }

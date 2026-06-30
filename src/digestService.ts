@@ -723,7 +723,7 @@ function applyLeadSignal(digest: Digest, leadSignal: CandidateSignal | null): Di
 function applyLearningRecommendation(digest: Digest, learningRecommendation: LearningRecommendationDebug): Digest {
   return {
     ...digest,
-    learningRecommendation: learningRecommendation.recommendation
+    learningRecommendation: learningRecommendation.recommendedReading
   };
 }
 
@@ -900,7 +900,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       thesis: leadSignal,
       evidence: leadSignal?.evidence ?? [],
       qualifiedResources: selectionResult.qualifiedCandidates,
-      selectionDecisions: selectionResult.decisions
+      editorialQualification,
+      allResources: recentCandidatePool,
+      selectionDecisions: selectionResult.decisions,
+      editorialRoles
     });
     console.log(
       `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
