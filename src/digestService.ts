@@ -43,6 +43,7 @@ import { truncateText } from "./textUtils.js";
 import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
 import type {
   CandidateSignal,
+  EvidenceReasoningDebug,
   EditorialDeliberationDecision,
   EvidenceGroup,
   EvidencePromotionRejection,
@@ -152,6 +153,7 @@ type DailyDigestResult = {
   hiddenEvidenceReasons: HiddenEvidenceReason[];
   renderedResourceCount: number;
   renderedResourceTitles: string[];
+  evidenceReasoning: EvidenceReasoningDebug;
   editorialContexts: EditorialContextDebug["editorialContexts"];
   contextBoundaryViolations: string[];
   sectionContracts: SectionContractsDebug["sectionContracts"];
@@ -198,6 +200,15 @@ function emptyEditorialDeliberation(): EditorialDeliberationDecision {
     dominantStory: null,
     secondaryStories: [],
     reasoning: ["Editorial Deliberation did not run because no Theme Discovery clusters were available."]
+  };
+}
+
+function emptyEvidenceReasoning(): EvidenceReasoningDebug {
+  return {
+    entries: [],
+    keptCount: 0,
+    discardedCount: 0,
+    reasoning: ["Evidence Reasoning did not run because no Lead Signal evidence was available."]
   };
 }
 
@@ -725,6 +736,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let hiddenEvidenceReasons: HiddenEvidenceReason[] = [];
   let renderedResourceCount = 0;
   let renderedResourceTitles: string[] = [];
+  let evidenceReasoning: EvidenceReasoningDebug = emptyEvidenceReasoning();
   let supportingResourceRanking = emptySupportingResourceRanking();
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
@@ -765,6 +777,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hiddenEvidenceReasons = thesisResult.hiddenEvidenceReasons;
       renderedResourceCount = thesisResult.renderedResourceCount;
       renderedResourceTitles = thesisResult.renderedResourceTitles;
+      evidenceReasoning = thesisResult.evidenceReasoning;
       supportingResourceRanking = thesisResult.supportingResourceRanking;
     } else {
       selectionResult = selectEditorialCandidates(candidatePool);
@@ -814,6 +827,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        evidenceReasoning,
         ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(fallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -879,6 +893,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount: editorialDigest.resources.length,
         renderedResourceTitles: editorialDigest.resources.map((resource) => resource.title),
+        evidenceReasoning,
         ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(editorialDigest, leadSignal),
         editorialWritingLayer: editorialAssembly.editorialWritingLayer,
@@ -941,6 +956,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hiddenEvidenceReasons,
           renderedResourceCount: fallbackDigest.resources.length,
           renderedResourceTitles: fallbackDigest.resources.map((resource) => resource.title),
+          evidenceReasoning,
           ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(fallbackDigest, leadSignal),
           editorialWritingLayer: fallbackAssembly.editorialWritingLayer,
@@ -993,6 +1009,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hiddenEvidenceReasons,
           renderedResourceCount,
           renderedResourceTitles,
+          evidenceReasoning,
           ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(emptyDigest, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
@@ -1044,6 +1061,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           hiddenEvidenceReasons,
           renderedResourceCount,
           renderedResourceTitles,
+          evidenceReasoning,
           ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
@@ -1093,6 +1111,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        evidenceReasoning,
         ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1147,6 +1166,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        evidenceReasoning,
         ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emptyDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1198,6 +1218,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         hiddenEvidenceReasons,
         renderedResourceCount,
         renderedResourceTitles,
+        evidenceReasoning,
         ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1248,6 +1269,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       hiddenEvidenceReasons,
       renderedResourceCount,
       renderedResourceTitles,
+      evidenceReasoning,
       ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
       ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
       ...emptyEditorialWritingLayerDebug(),

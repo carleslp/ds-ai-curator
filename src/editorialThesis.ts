@@ -123,6 +123,24 @@ export type SupportingResourceRankingDebug = {
   rejected: SupportingResourceRankingEntry[];
 };
 
+export type EvidenceReasoningEntry = {
+  title: string;
+  url: string;
+  source: string;
+  role: EvidenceRole;
+  uniqueContribution: string;
+  duplicateWith: string | null;
+  status: "kept" | "discarded";
+  reason: string;
+};
+
+export type EvidenceReasoningDebug = {
+  entries: EvidenceReasoningEntry[];
+  keptCount: number;
+  discardedCount: number;
+  reasoning: string[];
+};
+
 export type EditorialThesisResult = {
   selectionResult: EditorialSelectionResult;
   leadSignal: CandidateSignal | null;
@@ -146,6 +164,7 @@ export type EditorialThesisResult = {
   hiddenEvidenceReasons: HiddenEvidenceReason[];
   renderedResourceCount: number;
   renderedResourceTitles: string[];
+  evidenceReasoning: EvidenceReasoningDebug;
   supportingResourceRanking: SupportingResourceRankingDebug;
 };
 
@@ -758,6 +777,123 @@ function rankingEntryFor(item: EvidenceCandidate, selected: EvidenceCandidate[])
   };
 }
 
+function evidenceReasoningQuestion(role: EvidenceRole): string {
+  if (role === "lead") return "What makes the thesis real?";
+  if (role === "corroborating") return "What independent observation points in the same direction?";
+  if (role === "counter") return "What limits or qualifies this conclusion?";
+  return "What helps explain this shift?";
+}
+
+function uniqueContributionFor(item: EvidenceCandidate): string {
+  const text = `${item.evidence.contribution} ${item.candidate.title} ${item.candidate.cleanSummary} ${item.candidate.directDesignSystemEvidence}`.toLowerCase();
+
+  if (/accessibility|a11y|wcag/.test(text)) return "Shows accessibility becoming part of AI-assisted Design System verification.";
+  if (/\bqa\b|test|regression|review/.test(text)) return "Shows QA rules becoming enforceable checks for assisted delivery.";
+  if (/governance|ownership|policy|standards/.test(text)) return "Shows governance becoming an operating constraint for AI-assisted changes.";
+  if (/tokens?|variables?|semantic/.test(text)) return "Shows token intent becoming operational context, not naming convention.";
+  if (/figma|design-to-code|design to code|code generation|component generation/.test(text)) {
+    return "Shows Figma metadata shaping whether generated UI can reuse system components.";
+  }
+  if (/storybook|component metadata|manifest|docgen|mcp|machine-readable|machine readable/.test(text)) {
+    return "Shows component metadata becoming executable knowledge for agents.";
+  }
+  if (/docs?|documentation|rag|agent-readable|agent readable/.test(text)) {
+    return "Shows documentation becoming machine-readable system context.";
+  }
+  if (/component api|react native|\breact\b/.test(text)) return "Shows implementation APIs becoming part of the AI-readable system surface.";
+
+  return item.evidence.contribution;
+}
+
+function normalizedContribution(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function emptyEvidenceReasoning(): EvidenceReasoningDebug {
+  return {
+    entries: [],
+    keptCount: 0,
+    discardedCount: 0,
+    reasoning: ["No Evidence reached the reasoning pass."]
+  };
+}
+
+function reasonEvidence(items: EvidenceCandidate[], leadUrl: string): {
+  kept: EvidenceCandidate[];
+  discarded: EvidenceCandidate[];
+  debug: EvidenceReasoningDebug;
+} {
+  if (items.length === 0) {
+    return {
+      kept: [],
+      discarded: [],
+      debug: emptyEvidenceReasoning()
+    };
+  }
+
+  const ordered = [...items].sort((a, b) => {
+    if (a.candidate.url === leadUrl) return -1;
+    if (b.candidate.url === leadUrl) return 1;
+    const roleDifference = representativeRolePriority(b) - representativeRolePriority(a);
+    if (roleDifference !== 0) return roleDifference;
+    return b.strength - a.strength;
+  });
+  const contributionOwners = new Map<string, EvidenceCandidate>();
+  const kept: EvidenceCandidate[] = [];
+  const discarded: EvidenceCandidate[] = [];
+  const entries: EvidenceReasoningEntry[] = [];
+
+  for (const item of ordered) {
+    const uniqueContribution = uniqueContributionFor(item);
+    const contributionKey = normalizedContribution(uniqueContribution);
+    const duplicate = contributionOwners.get(contributionKey);
+    const isLead = item.candidate.url === leadUrl;
+
+    if (duplicate && !isLead) {
+      discarded.push(item);
+      entries.push({
+        title: item.evidence.resourceRef.title,
+        url: item.evidence.resourceRef.url,
+        source: item.evidence.resourceRef.source,
+        role: item.evidence.role,
+        uniqueContribution,
+        duplicateWith: duplicate.evidence.resourceRef.title,
+        status: "discarded",
+        reason: "No additional explanatory value beyond an Evidence item already covering this contribution."
+      });
+      continue;
+    }
+
+    kept.push(item);
+    contributionOwners.set(contributionKey, item);
+    entries.push({
+      title: item.evidence.resourceRef.title,
+      url: item.evidence.resourceRef.url,
+      source: item.evidence.resourceRef.source,
+      role: item.evidence.role,
+      uniqueContribution,
+      duplicateWith: null,
+      status: "kept",
+      reason: `${evidenceReasoningQuestion(item.evidence.role)} ${uniqueContribution}`
+    });
+  }
+
+  return {
+    kept,
+    discarded,
+    debug: {
+      entries,
+      keptCount: kept.length,
+      discardedCount: discarded.length,
+      reasoning: [
+        `Evaluated ${items.length} Evidence item${items.length === 1 ? "" : "s"} for distinct editorial contribution.`,
+        `Kept ${kept.length} Evidence item${kept.length === 1 ? "" : "s"} and discarded ${discarded.length} duplicate contribution${discarded.length === 1 ? "" : "s"}.`,
+        "Evidence Reasoning does not edit Evidence; it decides which contributions should survive into representative supporting resources."
+      ]
+    }
+  };
+}
+
 function hiddenReasonFor(item: EvidenceCandidate, selected: EvidenceCandidate[]): string {
   const selectedTitles = new Set(selected.map((selectedItem) => normalizedTitle(selectedItem.candidate.title)));
   const selectedSourceFamilies = new Set(selected.map((selectedItem) => sourceFamilyFor(selectedItem.candidate)));
@@ -776,6 +912,7 @@ function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: st
   representatives: EvidenceCandidate[];
   representativeSelectionReasons: string[];
   hiddenEvidenceReasons: HiddenEvidenceReason[];
+  evidenceReasoning: EvidenceReasoningDebug;
   supportingResourceRanking: SupportingResourceRankingDebug;
 } {
   const lead = leadGroup.find((item) => item.candidate.url === leadUrl);
@@ -791,14 +928,17 @@ function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: st
         candidatesConsidered: leadGroup.length,
         selected: [],
         rejected: leadGroup.map((item) => rankingEntryFor(item, []))
-      }
+      },
+      evidenceReasoning: emptyEvidenceReasoning()
     };
   }
 
-  const representatives: EvidenceCandidate[] = [lead];
+  const reasoning = reasonEvidence(leadGroup, leadUrl);
+  const reasonedLead = reasoning.kept.find((item) => item.candidate.url === leadUrl) ?? lead;
+  const representatives: EvidenceCandidate[] = [reasonedLead];
   const representativeSelectionReasons = [`Selected lead representative Evidence: "${lead.evidence.resourceRef.title}".`];
-  const remaining = leadGroup.filter((item) => item.candidate.url !== leadUrl);
-  const rankingCandidates = [...remaining];
+  const remaining = reasoning.kept.filter((item) => item.candidate.url !== leadUrl);
+  const rankingCandidates = leadGroup.filter((item) => item.candidate.url !== leadUrl);
 
   while (representatives.length < 4 && remaining.length > 0) {
     const scored = remaining
@@ -815,20 +955,27 @@ function representativeEvidenceGroup(leadGroup: EvidenceCandidate[], leadUrl: st
     remaining.splice(remaining.indexOf(next.item), 1);
   }
 
-  const hiddenEvidenceReasons = remaining.map((item) => ({
-    resourceRef: item.evidence.resourceRef,
-    reason: hiddenReasonFor(item, representatives)
-  }));
+  const hiddenEvidenceReasons = [
+    ...reasoning.discarded.map((item) => ({
+      resourceRef: item.evidence.resourceRef,
+      reason: "duplicate editorial contribution"
+    })),
+    ...remaining.map((item) => ({
+      resourceRef: item.evidence.resourceRef,
+      reason: hiddenReasonFor(item, representatives)
+    }))
+  ];
   const selectedSupporting = representatives.filter((item) => item.candidate.url !== leadUrl);
 
   return {
     representatives,
     representativeSelectionReasons,
     hiddenEvidenceReasons,
+    evidenceReasoning: reasoning.debug,
     supportingResourceRanking: {
       candidatesConsidered: rankingCandidates.length,
       selected: selectedSupporting.map((item) => rankingEntryFor(item, representatives.filter((selectedItem) => selectedItem !== item))),
-      rejected: remaining.map((item) => rankingEntryFor(item, representatives))
+      rejected: [...reasoning.discarded, ...remaining].map((item) => rankingEntryFor(item, representatives))
     }
   };
 }
@@ -1161,7 +1308,8 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
           candidatesConsidered: 0,
           selected: [],
           rejected: []
-        }
+        },
+        evidenceReasoning: emptyEvidenceReasoning()
       };
   const selectionResult = selectionFromLeadEvidence(baseSelection, leadGroup, leadSignal, representativeResult.representatives);
   const candidateSignals = leadSignal ? [leadSignal] : [];
@@ -1219,6 +1367,7 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
     hiddenEvidenceReasons: representativeResult.hiddenEvidenceReasons,
     renderedResourceCount: selectionResult.selectedCandidates.length,
     renderedResourceTitles: selectionResult.selectedCandidates.map((candidate) => candidate.title),
+    evidenceReasoning: representativeResult.evidenceReasoning,
     supportingResourceRanking: representativeResult.supportingResourceRanking
   };
 }

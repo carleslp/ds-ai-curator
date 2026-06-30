@@ -353,6 +353,71 @@ assert.deepEqual(
   releaseClusterResult.selectionResult.selectedCandidates.map((candidate) => candidate.title),
   "Rendered resource debug titles should match selected representative resources."
 );
+assert.ok(
+  releaseClusterResult.evidenceReasoning.discardedCount >= 1,
+  "Evidence Reasoning should discard duplicate editorial contributions in near-identical release evidence."
+);
+assert.ok(
+  releaseClusterResult.evidenceReasoning.entries.some((entry) => entry.status === "discarded" && entry.duplicateWith),
+  "Discarded Evidence should name the Evidence item that already covered the contribution."
+);
+
+const evidenceReasoningResult = selectEditorialThesis([
+  candidate({
+    title: "Storybook AI MCP component metadata for executable docs",
+    url: "https://storybook.js.org/releases/ai-mcp-executable-docs",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata, component manifest, docgen and machine-readable documentation automation.",
+    cleanSummary: "Storybook AI MCP component metadata, component manifest, docgen and machine-readable documentation automation.",
+    directDesignSystemEvidence: "Storybook component metadata and MCP evidence in title/snippet."
+  }),
+  candidate({
+    title: "Another Storybook MCP metadata article",
+    url: "https://example.com/another-storybook-mcp-metadata",
+    source: "Storybook Blog",
+    snippet: "Storybook MCP component metadata and machine-readable documentation for AI agents.",
+    cleanSummary: "Storybook MCP component metadata and machine-readable documentation for AI agents.",
+    directDesignSystemEvidence: "Storybook component metadata and MCP evidence in title/snippet."
+  }),
+  candidate({
+    title: "Figma metadata design-to-code AI component generation",
+    url: "https://example.com/figma-metadata-design-to-code-ai-reasoning",
+    source: "Design Systems Weekly",
+    snippet:
+      "Figma metadata drives AI design-to-code, code generation, component generation, production-ready UI and component reuse.",
+    cleanSummary:
+      "Figma metadata drives AI design-to-code, code generation, component generation, production-ready UI and component reuse.",
+    directDesignSystemEvidence: "Figma metadata and design-to-code evidence in title/snippet."
+  })
+]);
+
+assert.ok(evidenceReasoningResult.leadSignal, "Evidence Reasoning fixture should still produce a Lead Signal.");
+assert.ok(
+  evidenceReasoningResult.evidenceReasoning.entries.some(
+    (entry) => entry.status === "kept" && /component metadata becoming executable knowledge/i.test(entry.uniqueContribution)
+  ),
+  "Evidence Reasoning should keep one metadata contribution."
+);
+assert.ok(
+  evidenceReasoningResult.evidenceReasoning.entries.some(
+    (entry) => entry.status === "kept" && /Figma metadata shaping/i.test(entry.uniqueContribution)
+  ),
+  "Evidence Reasoning should keep distinct Figma/design-to-code contribution."
+);
+assert.ok(
+  evidenceReasoningResult.evidenceReasoning.entries.some(
+    (entry) => entry.status === "discarded" && /component metadata becoming executable knowledge/i.test(entry.uniqueContribution)
+  ),
+  "Evidence Reasoning should discard repeated metadata contribution."
+);
+assert.ok(
+  new Set(
+    evidenceReasoningResult.representativeSupportingEvidence.map((evidence) =>
+      evidenceReasoningResult.evidenceReasoning.entries.find((entry) => entry.url === evidence.resourceRef.url)?.uniqueContribution
+    )
+  ).size === evidenceReasoningResult.representativeSupportingEvidence.length,
+  "Representative supporting Evidence should have unique editorial contributions."
+);
 
 const deliberationResult = selectEditorialThesis([
   candidate({
