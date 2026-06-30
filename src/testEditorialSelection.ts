@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
+import { extractNarrativeFrame } from "./narrativeExtraction.js";
 
 function candidate(overrides: Partial<CandidateResource>): CandidateResource {
   return {
@@ -417,6 +418,30 @@ assert.ok(
     )
   ).size === evidenceReasoningResult.representativeSupportingEvidence.length,
   "Representative supporting Evidence should have unique editorial contributions."
+);
+
+const narrativeFrame = extractNarrativeFrame({
+  leadSignal: evidenceReasoningResult.leadSignal,
+  editorialDeliberation: evidenceReasoningResult.editorialDeliberation,
+  evidenceReasoning: evidenceReasoningResult.evidenceReasoning,
+  representativeLeadEvidence: evidenceReasoningResult.representativeLeadEvidence,
+  representativeSupportingEvidence: evidenceReasoningResult.representativeSupportingEvidence
+});
+
+assert.ok(narrativeFrame.headline.length > 0, "Narrative Extraction should produce a headline.");
+assert.ok(narrativeFrame.oldAssumption.length > 0, "Narrative Extraction should identify the old assumption.");
+assert.ok(narrativeFrame.newReality.length > 0, "Narrative Extraction should identify the new reality.");
+assert.notEqual(narrativeFrame.oldAssumption, narrativeFrame.newReality, "Narrative tension should distinguish old assumption from new reality.");
+assert.ok(narrativeFrame.leadProof.length > 0, "Narrative Extraction should use selected Lead Evidence as proof.");
+assert.ok(
+  narrativeFrame.sourceInputsUsed.includes("evidenceReasoning.keptEntries"),
+  "Narrative Extraction debug should show it used kept Evidence Reasoning entries."
+);
+assert.ok(
+  !/\b(cluster|score|candidate|evidence reasoning|pipeline|selected because|thesis engine)\b/i.test(
+    `${narrativeFrame.headline} ${narrativeFrame.oldAssumption} ${narrativeFrame.newReality} ${narrativeFrame.narrativeThesis} ${narrativeFrame.readerTakeaway}`
+  ),
+  "Narrative frame reader-facing fields should avoid internal machinery vocabulary."
 );
 
 const deliberationResult = selectEditorialThesis([

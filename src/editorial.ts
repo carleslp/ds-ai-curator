@@ -9,6 +9,7 @@ import {
   type SignalContext,
   type SupportingSignalsContext
 } from "./editorialContexts.js";
+import type { NarrativeExtraction } from "./narrativeExtraction.js";
 import { cleanText, truncateText } from "./textUtils.js";
 
 type EditorialFields = Pick<
@@ -45,6 +46,10 @@ function polishSignal(value: string): string {
       .replace(/\bI’d\s+/gi, ""),
     140
   );
+}
+
+function withoutTerminalPunctuation(value: string): string {
+  return cleanText(value).replace(/[.!?]+$/g, "");
 }
 
 function publicationSafeText(value: string): string {
@@ -270,9 +275,15 @@ function legacySelectedReason(resource: Resource, areas: string[]): string {
   );
 }
 
-function expectedImpact(resource: Resource, areas: string[], deliberation?: ReturnType<typeof buildEditorialDeliberation>): string {
+function expectedImpact(
+  resource: Resource,
+  areas: string[],
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>,
+  narrative?: NarrativeExtraction
+): string {
   return truncateText(
-    deliberation?.teamChange ||
+    narrative?.implicationForDesignSystemTeams ||
+      deliberation?.teamChange ||
       `Use it to improve how the team structures ${workflowPhrase(
         areas
       )} so designers, engineers, and internal agents can make the same system decision from the same context.`,
@@ -280,7 +291,12 @@ function expectedImpact(resource: Resource, areas: string[], deliberation?: Retu
   );
 }
 
-function enrichResources(resources: Resource[], contractMode = false, deliberation?: ReturnType<typeof buildEditorialDeliberation>): Resource[] {
+function enrichResources(
+  resources: Resource[],
+  contractMode = false,
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>,
+  narrative?: NarrativeExtraction
+): Resource[] {
   return resources.map((resource, index) => {
     const areas = resource.affected_workflow_areas?.length ? resource.affected_workflow_areas : affectedWorkflowAreas(resource);
 
@@ -292,7 +308,7 @@ function enrichResources(resources: Resource[], contractMode = false, deliberati
       summary: contractMode ? publicationSafeText(truncateText(resource.summary, 280)) : truncateText(resource.summary, 280),
       why_it_matters_to_our_team: whyItMatters(resource, areas, index, contractMode),
       why_selected: resource.why_selected ?? (contractMode ? selectedReason(resource, areas) : legacySelectedReason(resource, areas)),
-      expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas, deliberation),
+      expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas, deliberation, narrative),
       who_should_read: resource.who_should_read ?? audienceFor(resource, areas),
       estimated_reading_time: resource.estimated_reading_time ?? readingTime(resource),
       ignore_risk: resource.ignore_risk ?? ignoreRisk(resource, areas),
@@ -306,7 +322,8 @@ function applyEditorsPickContext(
   resource: Resource | null,
   context: EditorsPickContext,
   contractMode: boolean,
-  deliberation?: ReturnType<typeof buildEditorialDeliberation>
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>,
+  narrative?: NarrativeExtraction
 ): Resource | null {
   if (!resource) return null;
 
@@ -330,10 +347,19 @@ function applyEditorsPickContext(
     ...resource,
     cleanSummary: publicationSafeText(truncateText(contribution, 280)),
     summary: publicationSafeText(truncateText(contribution, 280)),
-    why_selected: publicationSafeText(truncateText(deliberation?.leadReason || `This is the clearest concrete example of the shift: ${context.claim}`, 160)),
+    why_selected: publicationSafeText(
+      truncateText(
+        narrative?.leadProof
+          ? `${resource.title} makes the shift tangible: ${narrative.leadProof}`
+          : deliberation?.leadReason || `This is the clearest concrete example of the shift: ${context.claim}`,
+        160
+      )
+    ),
     expected_impact_on_workflow: publicationSafeText(
       truncateText(
-        deliberation?.teamChange || `Useful because ${source} shows how an AI-enabled Design System workflow becomes concrete.`,
+        narrative?.implicationForDesignSystemTeams ||
+          deliberation?.teamChange ||
+          `Useful because ${source} shows how an AI-enabled Design System workflow becomes concrete.`,
         180
       )
     )
@@ -354,7 +380,12 @@ export function selectEditorsPick(resources: Resource[]): Resource | null {
   })[0];
 }
 
-function buildSignal(context: SignalContext, contractMode: boolean, deliberation?: ReturnType<typeof buildEditorialDeliberation>): string {
+function buildSignal(
+  context: SignalContext,
+  contractMode: boolean,
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>,
+  narrative?: NarrativeExtraction
+): string {
   if (!context.claim || context.claim === "No strong DS x AI signal cleared the bar today.") {
     return contractMode
       ? "No strong shift cleared the bar today. The useful takeaway is restraint: weak AI commentary creates false urgency when it never touches Figma libraries, Storybook metadata, React implementation, governance, documentation, accessibility, or agent-readable QA."
@@ -369,6 +400,19 @@ function buildSignal(context: SignalContext, contractMode: boolean, deliberation
     return polishSignal(brief);
   }
 
+  if (contractMode && narrative?.narrativeThesis) {
+    const oldAssumption = withoutTerminalPunctuation(narrative.oldAssumption);
+    const newReality = withoutTerminalPunctuation(narrative.newReality);
+    const readerTakeaway = withoutTerminalPunctuation(narrative.readerTakeaway);
+    return polishSignal(
+      publicationSafeText(
+        `The shift is not that ${oldAssumption.charAt(0).toLowerCase()}${oldAssumption.slice(1)}; it is that ${newReality
+          .charAt(0)
+          .toLowerCase()}${newReality.slice(1)}. ${readerTakeaway}.`
+      )
+    );
+  }
+
   const whyNow = publicationSafeText(truncateText(context.whyNow, 170));
   const change = deliberation?.actualChange || `AI-assisted Design System work is becoming constrained less by generation quality than by the structured knowledge it can safely consume across ${themePhrase}`;
   const timing = deliberation?.whyNow || whyNow;
@@ -380,8 +424,18 @@ function buildSignal(context: SignalContext, contractMode: boolean, deliberation
 function buildSupportingSignals(
   context: SupportingSignalsContext,
   contractMode: boolean,
-  deliberation?: ReturnType<typeof buildEditorialDeliberation>
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>,
+  narrative?: NarrativeExtraction
 ): string[] {
+  if (contractMode && narrative?.supportingObservations.length) {
+    const observations = narrative.supportingObservations.slice(0, 3);
+    return [
+      observations[0] ? `Lead proof: ${observations[0]}` : narrative.leadProof,
+      observations[1] ? `Corroboration: ${observations[1]}` : narrative.implicationForDesignSystemTeams,
+      observations[2] ? `Implication: ${observations[2]}` : narrative.readerTakeaway
+    ].map((item) => publicationSafeText(truncateText(item, 170)));
+  }
+
   if (context.representativeSupportingEvidence.length === 0) {
     return [
       "Most available items were too broad for a mature Design System team.",
@@ -418,7 +472,8 @@ function buildSupportingSignals(
 function buildSuggestedExperiment(
   context: MoveContext,
   contractMode: boolean,
-  deliberation?: ReturnType<typeof buildEditorialDeliberation>
+  deliberation?: ReturnType<typeof buildEditorialDeliberation>,
+  narrative?: NarrativeExtraction
 ): string {
   if (!context.opportunityMove) {
     return "In 30 minutes, audit one high-use component and add a checklist of what an internal Design System Agent and Internal QA Agent would need: Figma variant intent, Storybook examples, React/React Native props, accessibility states, Azure DevOps link, and governance rule.";
@@ -427,8 +482,11 @@ function buildSuggestedExperiment(
   const experiment = contractMode
     ? `Because ${workflowPhrase(deliberation?.areas?.slice(0, 2) ?? [context.targetSurface])} now depends on clearer system assumptions, ${truncateText(
         context.opportunityMove,
-        150
-      )} Start with ${context.preconditions[0] ?? "one high-use component"} and capture one gap an internal agent should not have to infer.`
+        120
+      )} Start with ${context.preconditions[0] ?? "one high-use component"} and ${truncateText(
+        narrative?.readerTakeaway || "capture one gap an internal agent should not have to infer",
+        95
+      )}.`
     : `In 30 minutes, use this move on ${context.targetSurface}: ${truncateText(
         context.opportunityMove,
         150
@@ -436,7 +494,7 @@ function buildSuggestedExperiment(
   return contractMode ? publicationSafeText(experiment) : experiment;
 }
 
-function buildTeamQuestions(context: ImpactContext, contractMode: boolean): string[] {
+function buildTeamQuestions(context: ImpactContext, contractMode: boolean, narrative?: NarrativeExtraction): string[] {
   if (!context.claim) {
     return [
       "Which Figma library component would expose the biggest gap if an internal Design System Agent tried to explain it today?",
@@ -449,10 +507,12 @@ function buildTeamQuestions(context: ImpactContext, contractMode: boolean): stri
 
   return contractMode
     ? [
-    `What would need to change in ${surfaces} for this signal to become usable in our workflow?`,
+    narrative?.oldAssumption && narrative?.newReality
+      ? `Where are we still operating as if ${narrative.oldAssumption.charAt(0).toLowerCase()}${narrative.oldAssumption.slice(1)}?`
+      : `What would need to change in ${surfaces} for this signal to become usable in our workflow?`,
     "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
     `Which governance, accessibility, or Internal QA Agent check would reduce this cost of inaction: ${truncateText(
-      context.costOfInaction,
+      narrative?.implicationForDesignSystemTeams || context.costOfInaction,
       120
     ).replace(/[.]+$/, "")}?`
       ]
@@ -463,12 +523,20 @@ function buildTeamQuestions(context: ImpactContext, contractMode: boolean): stri
       ];
 }
 
-function buildNextWeekWatchlist(context: HorizonContext, contractMode: boolean): string[] {
+function buildNextWeekWatchlist(context: HorizonContext, contractMode: boolean, narrative?: NarrativeExtraction): string[] {
   if (!contractMode) {
     return [
       "Watch whether Storybook AI/MCP work moves from release notes into repeatable component review workflows.",
       "Track whether Figma-related AI work explains metadata quality, variant intent, and design-to-code review.",
       "Look for governance patterns that tie AI-assisted changes back to documentation and ownership."
+    ];
+  }
+
+  if (narrative?.newReality) {
+    return [
+      `Watch for examples that confirm whether ${truncateText(narrative.newReality.charAt(0).toLowerCase() + narrative.newReality.slice(1), 110)}`,
+      "Track whether tooling connects generated output back to component intent, documentation, QA, and governance.",
+      "Look for teams publishing concrete review rules instead of broad AI productivity claims."
     ];
   }
 
@@ -481,7 +549,11 @@ function buildNextWeekWatchlist(context: HorizonContext, contractMode: boolean):
       ];
 }
 
-export function withEditorialSections(digest: DigestInput, editorialContexts?: EditorialContexts): Digest {
+export function withEditorialSections(
+  digest: DigestInput,
+  editorialContexts?: EditorialContexts,
+  narrative?: NarrativeExtraction
+): Digest {
   const contractMode = Boolean(editorialContexts);
   const resources = enrichResources(digest.resources, contractMode);
   const provisionalEditorsPick = digest.editorsPick
@@ -495,13 +567,13 @@ export function withEditorialSections(digest: DigestInput, editorialContexts?: E
       resources
     });
   const deliberation = buildEditorialDeliberation(contexts, resources, provisionalEditorsPick);
-  const deliberatedResources = enrichResources(resources, contractMode, deliberation);
-  const deliberatedEditorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext, contractMode, deliberation);
-  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext, contractMode, deliberation));
+  const deliberatedResources = enrichResources(resources, contractMode, deliberation, narrative);
+  const deliberatedEditorsPick = applyEditorsPickContext(provisionalEditorsPick, contexts.editorsPickContext, contractMode, deliberation, narrative);
+  const theSignal = polishSignal(digest.theSignal ?? digest.executiveBrief ?? buildSignal(contexts.signalContext, contractMode, deliberation, narrative));
   const supportingSignals =
     digest.supportingSignals ??
     digest.thisWeeksSignals ??
-    buildSupportingSignals(contexts.supportingSignalsContext, contractMode, deliberation);
+    buildSupportingSignals(contexts.supportingSignalsContext, contractMode, deliberation, narrative);
 
   return {
     date: digest.date,
@@ -511,9 +583,9 @@ export function withEditorialSections(digest: DigestInput, editorialContexts?: E
     editorsPick: deliberatedEditorsPick,
     supportingSignals,
     thisWeeksSignals: supportingSignals,
-    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext, contractMode, deliberation),
-    teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(contexts.impactContext, contractMode),
-    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(contexts.horizonContext, contractMode),
+    suggestedExperiment: digest.suggestedExperiment ?? buildSuggestedExperiment(contexts.moveContext, contractMode, deliberation, narrative),
+    teamDiscussionQuestions: digest.teamDiscussionQuestions ?? buildTeamQuestions(contexts.impactContext, contractMode, narrative),
+    nextWeekWatchlist: digest.nextWeekWatchlist ?? buildNextWeekWatchlist(contexts.horizonContext, contractMode, narrative),
     ...(digest.leadSignal !== undefined ? { leadSignal: digest.leadSignal } : {}),
     resources: deliberatedResources
   };
