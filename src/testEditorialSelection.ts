@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
 import { buildEditorialBrief } from "./editorialBrief.js";
 import { evaluateEditorialQualification, qualifyEditorialCandidates } from "./editorialQualification.js";
+import { assignEditorialRoles } from "./editorialRoles.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
 import { selectLearningRecommendation } from "./learningRecommendation.js";
 import { extractNarrativeFrame } from "./narrativeExtraction.js";
+import { classifyCandidatesTopics } from "./topicClassifier.js";
 
 function candidate(overrides: Partial<CandidateResource>): CandidateResource {
   return {
@@ -157,6 +159,95 @@ assert.ok(
   ),
   "EQE debug should expose full qualification scoring for every evaluated resource."
 );
+
+const roleFixtureCandidates = [
+  candidate({
+    title: "Storybook release: v10.5.0-alpha.7",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha.7",
+    source: "Storybook Releases",
+    snippet: "Release notes changelog introducing Storybook AI MCP component metadata, docgen and component manifests.",
+    cleanSummary: "Release notes changelog introducing Storybook AI MCP component metadata, docgen and component manifests.",
+    rawText: "Release notes changelog introducing Storybook AI MCP component metadata, docgen and component manifests.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet.",
+    sourceCategory: "Official",
+    readerValue: 42,
+    learningValue: 38
+  }),
+  candidate({
+    title: "Who Are We Writing For Now?",
+    url: "https://medium.com/design-systems/who-are-we-writing-for-now",
+    source: "Medium Design Systems",
+    snippet:
+      "Deep essay and explainer about writing Design System documentation for designers, engineers and AI agents using Storybook metadata and component examples.",
+    cleanSummary:
+      "Deep essay and explainer about writing Design System documentation for designers, engineers and AI agents using Storybook metadata and component examples.",
+    rawText:
+      "Deep essay and explainer about writing Design System documentation for designers, engineers and AI agents using Storybook metadata and component examples.",
+    directDesignSystemEvidence: "AI and Design System anchor evidence in title/snippet.",
+    sourceCategory: "Practical",
+    readerValue: 94,
+    learningValue: 95
+  }),
+  candidate({
+    title: "Figma Help Center search results",
+    url: "https://help.figma.com/hc/en-us/search?query=MCP",
+    source: "Figma MCP Documentation",
+    snippet: "Figma Help Center documentation index and search results.",
+    cleanSummary: "Figma Help Center documentation index and search results.",
+    rawText: "Figma Help Center documentation index and search results.",
+    directDesignSystemEvidence: "",
+    sourceCategory: "Official",
+    readerValue: 36,
+    learningValue: 30
+  }),
+  candidate({
+    title: "AI Planning for Island Smallholder Farmers",
+    url: "https://arxiv.org/abs/4444.4444",
+    source: "arXiv",
+    snippet: "A generic AI planning paper about agriculture, farming and island smallholder farmers.",
+    cleanSummary: "A generic AI planning paper about agriculture, farming and island smallholder farmers.",
+    rawText: "A generic AI planning paper about agriculture, farming and island smallholder farmers.",
+    directDesignSystemEvidence: "",
+    sourceCategory: "Research",
+    readerValue: 20,
+    learningValue: 20
+  })
+];
+const roleQualification = qualifyEditorialCandidates(roleFixtureCandidates);
+const roleSelection = selectEditorialCandidates(roleQualification.qualifiedCandidates);
+const editorialRoles = assignEditorialRoles({
+  candidates: roleFixtureCandidates,
+  editorialQualification: roleQualification.editorialQualification,
+  editorialSelection: roleSelection.decisions,
+  topicClassifications: classifyCandidatesTopics(roleFixtureCandidates)
+});
+const roleByTitle = new Map(editorialRoles.roleAssignments.map((assignment) => [assignment.title, assignment]));
+const storybookReleaseRoles = roleByTitle.get("Storybook release: v10.5.0-alpha.7");
+const writingForRoles = roleByTitle.get("Who Are We Writing For Now?");
+const docsIndexRoles = roleByTitle.get("Figma Help Center search results");
+const farmersRoles = roleByTitle.get("AI Planning for Island Smallholder Farmers");
+
+assert.ok(storybookReleaseRoles, "Expected Storybook release role assignment.");
+assert.ok(
+  storybookReleaseRoles.primaryRole === "Evidence" || storybookReleaseRoles.primaryRole === "Watchlist",
+  "Storybook release should primarily fill Evidence or Watchlist."
+);
+assert.equal(
+  storybookReleaseRoles.possibleEditorialRoles.some((role) => role.role === "Teaching" && role.fit === "strong"),
+  false,
+  "Release notes should almost never have Teaching as a strong role."
+);
+assert.equal(writingForRoles?.primaryRole, "Teaching", "Who Are We Writing For Now? should be classified as Teaching.");
+assert.ok(
+  docsIndexRoles?.primaryRole === "Ignore" || docsIndexRoles?.primaryRole === "Reference",
+  "Generic docs indexes should be Ignore or Reference."
+);
+assert.equal(farmersRoles?.primaryRole, "Ignore", "arXiv papers unrelated to Design Systems should be Ignore.");
+assert.ok(
+  editorialRoles.roleAssignments.every((assignment) => assignment.possibleEditorialRoles.length >= 1),
+  "Every candidate should receive possible editorial roles."
+);
+assert.ok(editorialRoles.summary.notes.some((note) => /does not change selection/i.test(note)));
 const thesisInput = [
   candidate({
     title: "Reasoning for Mobile User Experience with LLM Agents",

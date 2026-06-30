@@ -36,6 +36,10 @@ import {
   qualifyEditorialCandidates,
   type EditorialQualification
 } from "./editorialQualification.js";
+import {
+  assignEditorialRoles,
+  type EditorialRoleDebug
+} from "./editorialRoles.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
@@ -205,6 +209,7 @@ type DailyDigestResult = {
   editorialScores: EditorialScoredCandidate[];
   topicClassifications: TopicClassification[];
   editorialQualification: EditorialQualification[];
+  editorialRoles: EditorialRoleDebug;
   editorialSelection: EditorialSelectionDecision[];
 };
 
@@ -260,6 +265,28 @@ function emptyEvidenceSetSummary(): EvidenceSetSummary {
     contradictingEvidenceCount: 0,
     leadEvidenceTitle: "",
     independenceMarkers: []
+  };
+}
+
+function emptyEditorialRoles(): EditorialRoleDebug {
+  return {
+    roleAssignments: [],
+    summary: {
+      evaluatedCount: 0,
+      qualifiedCount: 0,
+      rejectedCount: 0,
+      roleCounts: {
+        Evidence: 0,
+        Teaching: 0,
+        Practice: 0,
+        Counterpoint: 0,
+        Watchlist: 0,
+        Ignore: 0,
+        Reference: 0
+      },
+      readerFacingCount: 0,
+      notes: ["Editorial Roles did not run because no candidates were available."]
+    }
   };
 }
 
@@ -766,7 +793,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   const thesisLedgerEntryCount = thesisLedgerPreview.totalEntries;
   let candidates: CandidateResource[] = [];
   let candidatePool: CandidateResource[] = [];
+  let recentCandidatePool: CandidateResource[] = [];
   let editorialQualification: EditorialQualification[] = [];
+  let editorialRoles: EditorialRoleDebug = emptyEditorialRoles();
   let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
   let sourceResults: SourceResult[] = [];
   let rejectedCandidates: EditorialSelectionDecision[] = [];
@@ -808,7 +837,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     sourceResults = collectionResult.sourceResults;
     console.log(`Step 2: Candidate collection completed (${candidates.length} candidates).`);
 
-    const recentCandidatePool = filterRecentCandidates(candidates);
+    recentCandidatePool = filterRecentCandidates(candidates);
     console.log(`Step 3: Candidate normalization/recent-history pass completed (${recentCandidatePool.length} candidates).`);
     const qualificationResult = qualifyEditorialCandidates(recentCandidatePool);
     candidatePool = qualificationResult.qualifiedCandidates;
@@ -860,6 +889,12 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       selectionResult = selectEditorialCandidates(candidatePool);
     }
     rejectedCandidates = selectionResult.rejectedDecisions;
+    editorialRoles = assignEditorialRoles({
+      candidates: recentCandidatePool,
+      editorialQualification,
+      editorialSelection: selectionResult.decisions,
+      topicClassifications: classifyCandidatesTopics(recentCandidatePool)
+    });
     learningRecommendation = selectLearningRecommendation({
       editorialBrief,
       thesis: leadSignal,
@@ -933,6 +968,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
         editorialQualification,
+        editorialRoles,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1005,6 +1041,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
         editorialQualification,
+        editorialRoles,
         editorialSelection: selectionResult.decisions
       };
     } catch (error) {
@@ -1075,6 +1112,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
           editorialQualification,
+          editorialRoles,
           editorialSelection: selectionResult.decisions
         };
       }
@@ -1131,6 +1169,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
           editorialQualification,
+          editorialRoles,
           editorialSelection: selectionResult.decisions
         };
       }
@@ -1190,6 +1229,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
           editorialQualification,
+          editorialRoles,
           editorialSelection: selectionResult.decisions
         };
       }
@@ -1244,6 +1284,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
         editorialQualification,
+        editorialRoles,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1303,6 +1344,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
         editorialQualification,
+        editorialRoles,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1362,6 +1404,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
         editorialQualification,
+        editorialRoles,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1417,6 +1460,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       editorialScores: scoreEditorialCandidates(candidates),
       topicClassifications: classifyCandidatesTopics(candidates),
       editorialQualification,
+      editorialRoles,
       editorialSelection: selectionResult.decisions
     };
   }

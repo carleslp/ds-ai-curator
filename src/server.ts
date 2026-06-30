@@ -110,6 +110,7 @@ const server = http.createServer(async (request, response) => {
       candidatesPreview: result.candidatesPreview,
       selectedPreview: result.selectedPreview,
       editorialQualification: result.editorialQualification,
+      editorialRoles: result.editorialRoles,
       editorialSelection: result.editorialSelection,
       editorialScores: result.editorialScores,
       topicClassifications: result.topicClassifications
@@ -170,6 +171,7 @@ const server = http.createServer(async (request, response) => {
             sourceResults: result.sourceResults,
             rejectedCandidates: result.rejectedCandidates,
             editorialQualification: result.editorialQualification,
+            editorialRoles: result.editorialRoles,
             ...(result.fallbackReason ? { fallbackReason: result.fallbackReason } : {})
           }
         }

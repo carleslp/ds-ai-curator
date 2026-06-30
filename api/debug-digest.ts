@@ -88,6 +88,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     candidatesPreview: result.candidatesPreview,
     selectedPreview: result.selectedPreview,
     editorialQualification: result.editorialQualification,
+    editorialRoles: result.editorialRoles,
     editorialSelection: result.editorialSelection,
     editorialScores: result.editorialScores,
     topicClassifications: result.topicClassifications
