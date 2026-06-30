@@ -3,6 +3,7 @@ import type { CandidateResource } from "./collectCandidates.js";
 import { buildEditorialBrief } from "./editorialBrief.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
+import { selectLearningRecommendation } from "./learningRecommendation.js";
 import { extractNarrativeFrame } from "./narrativeExtraction.js";
 
 function candidate(overrides: Partial<CandidateResource>): CandidateResource {
@@ -524,6 +525,102 @@ assert.ok(
   ),
   "Editorial Brief reader-facing inputs should avoid internal machinery vocabulary."
 );
+
+const learningSelectionResult = selectEditorialCandidates([
+  candidate({
+    title: "Storybook release notes for AI MCP component metadata",
+    url: "https://github.com/storybookjs/storybook/releases/tag/v10.5.0-alpha-learning",
+    source: "Storybook Releases",
+    snippet: "Release notes changelog for Storybook AI MCP component metadata, docgen and component manifests.",
+    cleanSummary: "Release notes changelog for Storybook AI MCP component metadata, docgen and component manifests.",
+    rawText: "Release notes changelog for Storybook AI MCP component metadata, docgen and component manifests.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet.",
+    readerValue: 42,
+    learningValue: 38,
+    sourceCategory: "Official",
+    rankingExplanation: "Official source. Release-note format is useful evidence but weak teaching."
+  }),
+  candidate({
+    title: "How AI-ready component docs change Design System work",
+    url: "https://medium.com/design-systems/ai-ready-component-docs-design-system-work",
+    source: "Medium Design Systems",
+    snippet:
+      "Deep essay with examples and a practical walkthrough explaining how AI-ready component documentation, Storybook metadata and MCP change Design System workflows.",
+    cleanSummary:
+      "Deep essay with examples and a practical walkthrough explaining how AI-ready component documentation, Storybook metadata and MCP change Design System workflows.",
+    rawText:
+      "Deep essay with examples and a practical walkthrough explaining how AI-ready component documentation, Storybook metadata and MCP change Design System workflows.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet.",
+    readerValue: 95,
+    learningValue: 96,
+    sourceCategory: "Practical",
+    rankingExplanation: "Practical source. High reader and learning value from deep essay, examples and walkthrough."
+  }),
+  candidate({
+    title: "Quick notes on Storybook MCP for component docs",
+    url: "https://example.com/storybook-mcp-component-docs-notes",
+    source: "Practitioner Blog",
+    snippet:
+      "Practical notes on Storybook MCP, component metadata, documentation automation and Design System workflow changes.",
+    cleanSummary:
+      "Practical notes on Storybook MCP, component metadata, documentation automation and Design System workflow changes.",
+    rawText:
+      "Practical notes on Storybook MCP, component metadata, documentation automation and Design System workflow changes.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet.",
+    readerValue: 78,
+    learningValue: 76,
+    sourceCategory: "Practical",
+    rankingExplanation: "Practical source. Useful but less explanatory than the deep essay."
+  })
+]);
+const learningRecommendation = selectLearningRecommendation({
+  editorialBrief,
+  thesis: evidenceReasoningResult.leadSignal,
+  evidence: evidenceReasoningResult.leadSignal?.evidence ?? [],
+  qualifiedResources: learningSelectionResult.qualifiedCandidates,
+  selectionDecisions: learningSelectionResult.decisions
+});
+
+assert.ok(learningRecommendation.recommendation, "Learning Recommendation should select a teaching artifact when one exists.");
+assert.equal(
+  learningRecommendation.recommendation?.url,
+  "https://medium.com/design-systems/ai-ready-component-docs-design-system-work",
+  "Learning Recommendation should prefer the artifact that teaches the thesis over release notes."
+);
+assert.ok(learningRecommendation.whyItWon.length > 0, "Learning Recommendation debug should explain why the winner won.");
+assert.ok(learningRecommendation.alternativesLost.length >= 1, "Learning Recommendation debug should explain why alternatives lost.");
+assert.equal(learningRecommendation.nullConsidered, true, "Learning Recommendation should explicitly consider null.");
+
+const nullLearningSelection = selectEditorialCandidates([
+  candidate({
+    title: "Storybook API reference for AI MCP component metadata",
+    url: "https://storybook.js.org/docs/api/ai-mcp-component-metadata",
+    source: "Storybook Documentation",
+    snippet: "API reference documentation for Storybook AI MCP component metadata and component manifest options.",
+    cleanSummary: "API reference documentation for Storybook AI MCP component metadata and component manifest options.",
+    rawText: "API reference documentation for Storybook AI MCP component metadata and component manifest options.",
+    directDesignSystemEvidence: "MCP and Storybook anchor evidence in title/snippet.",
+    readerValue: 40,
+    learningValue: 42,
+    sourceCategory: "Official",
+    rankingExplanation: "Official source. Reference documentation is useful evidence but weak teaching."
+  })
+]);
+const nullLearningRecommendation = selectLearningRecommendation({
+  editorialBrief,
+  thesis: evidenceReasoningResult.leadSignal,
+  evidence: evidenceReasoningResult.leadSignal?.evidence ?? [],
+  qualifiedResources: nullLearningSelection.qualifiedCandidates,
+  selectionDecisions: nullLearningSelection.decisions
+});
+
+assert.equal(
+  nullLearningRecommendation.recommendation,
+  null,
+  "Learning Recommendation should return null instead of downgrading to mediocre documentation."
+);
+assert.equal(nullLearningRecommendation.nullConsidered, true);
+assert.ok(nullLearningRecommendation.nullReason.length > 0, "Null debug should explain why no teaching artifact won.");
 
 const deliberationResult = selectEditorialThesis([
   candidate({

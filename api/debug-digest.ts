@@ -58,6 +58,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     evidenceReasoning: result.evidenceReasoning,
     narrativeExtraction: result.narrativeExtraction,
     editorialBrief: result.editorialBrief,
+    learningRecommendation: result.learningRecommendation,
     renderingPipelineTrace,
     editorialContexts: result.editorialContexts,
     contextBoundaryViolations: result.contextBoundaryViolations,

@@ -1,5 +1,6 @@
 import { cleanText, truncateText } from "./textUtils.js";
 import type { CandidateSignal } from "./editorialThesis.js";
+import type { LearningRecommendation } from "./learningRecommendation.js";
 
 export type Resource = {
   title: string;
@@ -40,6 +41,7 @@ export type Digest = {
   teamDiscussionQuestions: string[];
   nextWeekWatchlist: string[];
   leadSignal?: CandidateSignal | null;
+  learningRecommendation?: LearningRecommendation | null;
   resources: Resource[];
 };
 
@@ -267,6 +269,49 @@ function renderEditorsPick(editorsPick: Resource | null): string {
                           </table>
                         </td>
                       </tr>
+	                    </table>`;
+}
+
+function renderLearningRecommendation(recommendation: LearningRecommendation | null | undefined): string {
+  if (!recommendation) return "";
+
+  const title = cleanText(recommendation.title);
+  const source = cleanText(recommendation.source);
+  const minutes = `${recommendation.estimatedMinutes} min`;
+  const whyRecommended = truncateText(recommendation.whyRecommended, 220);
+  const readerGain = truncateText(recommendation.readerGain, 190);
+
+  return `
+                    ${renderSectionLabel("If you read one thing this week")}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;">
+                      <tr>
+                        <td style="padding:18px 20px;">
+                          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
+                            <tr>
+                              <td style="font-size:11px;color:#9a3412;font-weight:800;text-transform:uppercase;">
+                                ${escapeHtml(source)}
+                              </td>
+                              <td style="text-align:right;font-size:11px;color:#9a3412;font-weight:700;white-space:nowrap;">
+                                ${escapeHtml(minutes)}
+                              </td>
+                            </tr>
+                          </table>
+                          <div style="font-size:17px;font-weight:900;line-height:1.35;margin-bottom:8px;">
+                            <a href="${safeUrl(recommendation.url)}" style="color:#111827;text-decoration:none;">
+                              ${escapeHtml(title)}
+                            </a>
+                          </div>
+                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:10px;">
+                            <strong style="color:#9a3412;">Why this is worth your time:</strong> ${escapeHtml(whyRecommended)}
+                          </div>
+                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:12px;">
+                            <strong style="color:#9a3412;">Reader takeaway:</strong> ${escapeHtml(readerGain)}
+                          </div>
+                          <a href="${safeUrl(recommendation.url)}" style="font-size:12px;color:#c2410c;font-weight:900;text-decoration:none;">
+                            Read →
+                          </a>
+                        </td>
+                      </tr>
                     </table>`;
 }
 
@@ -438,6 +483,7 @@ export function renderEmail(digest: Digest): string {
                   <td class="email-padding" style="padding:30px 40px;">
                     ${renderTheSignal(digest.theSignal || digest.executiveBrief)}
                     ${renderEditorsPick(digest.editorsPick)}
+                    ${renderLearningRecommendation(digest.learningRecommendation)}
                     ${renderSupportingSignals(digest.supportingSignals ?? digest.thisWeeksSignals)}
                     ${renderResourcesSection(resources, resourceLabel)}
                     ${renderSuggestedExperiment(digest.suggestedExperiment)}

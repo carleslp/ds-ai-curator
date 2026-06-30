@@ -49,6 +49,11 @@ import {
   extractNarrativeFrame,
   type NarrativeExtraction
 } from "./narrativeExtraction.js";
+import {
+  emptyLearningRecommendation,
+  selectLearningRecommendation,
+  type LearningRecommendationDebug
+} from "./learningRecommendation.js";
 import { truncateText } from "./textUtils.js";
 import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
 import type {
@@ -174,6 +179,7 @@ type DailyDigestResult = {
   evidenceReasoning: EvidenceReasoningDebug;
   narrativeExtraction: NarrativeExtraction;
   editorialBrief: EditorialBrief;
+  learningRecommendation: LearningRecommendationDebug;
   editorialContexts: EditorialContextDebug["editorialContexts"];
   contextBoundaryViolations: string[];
   sectionContracts: SectionContractsDebug["sectionContracts"];
@@ -682,6 +688,13 @@ function applyLeadSignal(digest: Digest, leadSignal: CandidateSignal | null): Di
   };
 }
 
+function applyLearningRecommendation(digest: Digest, learningRecommendation: LearningRecommendationDebug): Digest {
+  return {
+    ...digest,
+    learningRecommendation: learningRecommendation.recommendation
+  };
+}
+
 function stripLeadSignal(digest: Digest): Digest {
   const { leadSignal: _leadSignal, ...digestWithoutLeadSignal } = digest;
   return digestWithoutLeadSignal;
@@ -775,6 +788,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let evidenceReasoning: EvidenceReasoningDebug = emptyEvidenceReasoning();
   let narrativeExtraction: NarrativeExtraction = emptyNarrativeExtraction();
   let editorialBrief: EditorialBrief = emptyEditorialBrief();
+  let learningRecommendation: LearningRecommendationDebug = emptyLearningRecommendation();
   let supportingResourceRanking = emptySupportingResourceRanking();
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
@@ -834,6 +848,13 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       selectionResult = selectEditorialCandidates(candidatePool);
     }
     rejectedCandidates = selectionResult.rejectedDecisions;
+    learningRecommendation = selectLearningRecommendation({
+      editorialBrief,
+      thesis: leadSignal,
+      evidence: leadSignal?.evidence ?? [],
+      qualifiedResources: selectionResult.qualifiedCandidates,
+      selectionDecisions: selectionResult.decisions
+    });
     console.log(
       `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
     );
@@ -844,7 +865,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
     if (selectionResult.selectedCandidates.length === 0) {
       console.error("No candidates survived editorial selection; returning a clean empty-selection digest.");
-      const fallbackDigest = applyLeadSignal(buildCandidateFallbackDigest(selectionResult), leadSignal);
+      const fallbackDigest = applyLearningRecommendation(
+        applyLeadSignal(buildCandidateFallbackDigest(selectionResult), leadSignal),
+        learningRecommendation
+      );
       if (fallbackDigest.resources.length > 0) {
         rememberDigest(fallbackDigest);
       }
@@ -881,6 +905,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidenceReasoning,
         narrativeExtraction,
         editorialBrief,
+        learningRecommendation,
         ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(fallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -911,7 +936,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         narrativeExtraction,
         editorialBrief
       );
-      const editorialDigest = applyLeadSignal(editorialAssembly.digest, leadSignal);
+      const editorialDigest = applyLearningRecommendation(applyLeadSignal(editorialAssembly.digest, leadSignal), learningRecommendation);
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
 
       cachedDigest = editorialDigest;
@@ -951,6 +976,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidenceReasoning,
         narrativeExtraction,
         editorialBrief,
+        learningRecommendation,
         ...editorialContextDebugFor(editorialDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(editorialDigest, leadSignal),
         editorialWritingLayer: editorialAssembly.editorialWritingLayer,
@@ -980,7 +1006,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         narrativeExtraction,
         editorialBrief
       );
-      const fallbackDigest = applyLeadSignal(fallbackAssembly.digest, leadSignal);
+      const fallbackDigest = applyLearningRecommendation(applyLeadSignal(fallbackAssembly.digest, leadSignal), learningRecommendation);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
       if (hasRenderableDigestContent(fallbackDigest)) {
@@ -1018,6 +1044,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           evidenceReasoning,
           narrativeExtraction,
           editorialBrief,
+          learningRecommendation,
           ...editorialContextDebugFor(fallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(fallbackDigest, leadSignal),
           editorialWritingLayer: fallbackAssembly.editorialWritingLayer,
@@ -1038,7 +1065,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       }
 
       if (candidatePool.length > 0) {
-        const emptyDigest = createEmptySelectionDigest();
+        const emptyDigest = applyLearningRecommendation(createEmptySelectionDigest(), learningRecommendation);
         console.error("Daily digest mode: candidateFallbackEmptySelection.");
         return {
           digest: emptyDigest,
@@ -1073,6 +1100,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           evidenceReasoning,
           narrativeExtraction,
           editorialBrief,
+          learningRecommendation,
           ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(emptyDigest, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
@@ -1093,7 +1121,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
       if (cachedDigest) {
         console.error("Daily digest mode: cachedDigest.");
-        const cachedDigestForResponse = digestForCurrentThesisFlag(cachedDigest, thesisEngineEnabled);
+        const cachedDigestForResponse = applyLearningRecommendation(
+          digestForCurrentThesisFlag(cachedDigest, thesisEngineEnabled),
+          learningRecommendation
+        );
         return {
           digest: cachedDigestForResponse,
           mode: "cachedDigest",
@@ -1127,6 +1158,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           evidenceReasoning,
           narrativeExtraction,
           editorialBrief,
+          learningRecommendation,
           ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
           ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
           ...emptyEditorialWritingLayerDebug(),
@@ -1145,7 +1177,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         };
       }
 
-      const emergencyFallbackDigest = createEmergencyFallbackDigest();
+      const emergencyFallbackDigest = applyLearningRecommendation(createEmergencyFallbackDigest(), learningRecommendation);
       return {
         digest: emergencyFallbackDigest,
         mode: "emergencyFallback",
@@ -1179,6 +1211,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidenceReasoning,
         narrativeExtraction,
         editorialBrief,
+        learningRecommendation,
         ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1201,7 +1234,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     console.error(`Candidate pipeline failed: ${fallbackReason}`);
 
     if (candidatePool.length > 0) {
-      const emptyDigest = createEmptySelectionDigest();
+      const emptyDigest = applyLearningRecommendation(createEmptySelectionDigest(), learningRecommendation);
       console.error("Daily digest mode: candidateFallbackEmptySelection.");
       return {
         digest: emptyDigest,
@@ -1236,6 +1269,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidenceReasoning,
         narrativeExtraction,
         editorialBrief,
+        learningRecommendation,
         ...editorialContextDebugFor(emptyDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(emptyDigest, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1256,7 +1290,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
 
     if (cachedDigest) {
       console.error("Daily digest mode: cachedDigest.");
-      const cachedDigestForResponse = digestForCurrentThesisFlag(cachedDigest, thesisEngineEnabled);
+      const cachedDigestForResponse = applyLearningRecommendation(
+        digestForCurrentThesisFlag(cachedDigest, thesisEngineEnabled),
+        learningRecommendation
+      );
       return {
         digest: cachedDigestForResponse,
         mode: "cachedDigest",
@@ -1290,6 +1327,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidenceReasoning,
         narrativeExtraction,
         editorialBrief,
+        learningRecommendation,
         ...editorialContextDebugFor(cachedDigestForResponse, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
         ...sectionContractDebugFor(cachedDigestForResponse, leadSignal),
         ...emptyEditorialWritingLayerDebug(),
@@ -1309,7 +1347,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     }
 
     console.error("Daily digest mode: emergencyFallback.");
-    const emergencyFallbackDigest = createEmergencyFallbackDigest();
+    const emergencyFallbackDigest = applyLearningRecommendation(createEmergencyFallbackDigest(), learningRecommendation);
     return {
       digest: emergencyFallbackDigest,
       mode: "emergencyFallback",
@@ -1343,6 +1381,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       evidenceReasoning,
       narrativeExtraction,
       editorialBrief,
+      learningRecommendation,
       ...editorialContextDebugFor(emergencyFallbackDigest, leadSignal, representativeLeadEvidence, representativeSupportingEvidence),
       ...sectionContractDebugFor(emergencyFallbackDigest, leadSignal),
       ...emptyEditorialWritingLayerDebug(),

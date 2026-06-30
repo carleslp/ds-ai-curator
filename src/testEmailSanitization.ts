@@ -71,6 +71,36 @@ assert.ok(
   "Expected v4 editorial sections to render in the requested order."
 );
 
+const htmlWithLearningRecommendation = renderEmail({
+  ...withEditorialSections({
+    date: "2026-06-25",
+    trend_summary: "Testing learning recommendation.",
+    resources: []
+  }),
+  learningRecommendation: {
+    title: "How AI-ready component docs change Design System work",
+    url: "https://medium.com/design-systems/ai-ready-component-docs-design-system-work",
+    author: "Medium Design Systems",
+    source: "Medium Design Systems",
+    format: "Essay",
+    estimatedMinutes: 12,
+    readerGain: "A clearer mental model for how the shift changes Design System practice.",
+    whyRecommended: "It teaches the thesis instead of merely proving that it is true.",
+    confidence: 0.86,
+    relationshipToThesis: "Explains why AI-ready component docs matter."
+  }
+});
+
+assert.ok(
+  htmlWithLearningRecommendation.indexOf("Editor&#039;s Pick") <
+    htmlWithLearningRecommendation.indexOf("If you read one thing this week") &&
+    htmlWithLearningRecommendation.indexOf("If you read one thing this week") <
+      htmlWithLearningRecommendation.indexOf("Supporting Signals"),
+  "Expected Learning Recommendation to render after Editor's Pick and before Supporting Signals."
+);
+assert.match(htmlWithLearningRecommendation, /Why this is worth your time/i);
+assert.match(htmlWithLearningRecommendation, /Reader takeaway/i);
+
 const htmlWithoutOptionalSections = renderEmail({
   date: "2026-06-25",
   trend_summary: "Testing optional editorial sections.",
@@ -85,7 +115,7 @@ const htmlWithoutOptionalSections = renderEmail({
   resources: []
 });
 
-assert.doesNotMatch(htmlWithoutOptionalSections, /Editor&#039;s Pick|Suggested Experiment|Questions for our Team|Next Week Watchlist/);
+assert.doesNotMatch(htmlWithoutOptionalSections, /Editor&#039;s Pick|If you read one thing this week|Suggested Experiment|Questions for our Team|Next Week Watchlist/);
 
 console.log("Email sanitization test passed.");
 

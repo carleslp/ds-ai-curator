@@ -32,6 +32,7 @@ export type EditorialSelectionDecision = {
 
 export type EditorialSelectionResult = {
   selectedCandidates: CandidateResource[];
+  qualifiedCandidates: CandidateResource[];
   decisions: EditorialSelectionDecision[];
   selectedDecisions: EditorialSelectionDecision[];
   rejectedDecisions: EditorialSelectionDecision[];
@@ -572,6 +573,7 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
 
   return {
     selectedCandidates: finalSelected.map((item) => item.candidate),
+    qualifiedCandidates: qualified.map((item) => item.candidate),
     decisions,
     selectedDecisions,
     rejectedDecisions,
