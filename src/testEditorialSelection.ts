@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
 import { buildEditorialBrief } from "./editorialBrief.js";
+import { evaluateEditorialQualification, qualifyEditorialCandidates } from "./editorialQualification.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
 import { selectLearningRecommendation } from "./learningRecommendation.js";
@@ -82,6 +83,80 @@ const result = selectEditorialCandidates([
     directDesignSystemEvidence: ""
   })
 ]);
+
+const islandFarmersQualification = evaluateEditorialQualification(
+  candidate({
+    title: "AI Planning for Island Smallholder Farmers",
+    url: "https://arxiv.org/abs/4444.4444",
+    source: "arXiv",
+    snippet: "A generic AI planning paper about agriculture, farming and island smallholder farmers.",
+    cleanSummary: "A generic AI planning paper about agriculture, farming and island smallholder farmers.",
+    rawText: "A generic AI planning paper about agriculture, farming and island smallholder farmers.",
+    directDesignSystemEvidence: "",
+    sourceCategory: "Research",
+    readerValue: 20,
+    learningValue: 20
+  })
+);
+
+assert.equal(islandFarmersQualification.qualificationDecision, "rejected");
+assert.equal(islandFarmersQualification.domainAffinity, 0);
+assert.match(islandFarmersQualification.qualificationReason, /unrelated domain/i);
+
+const figmaDocsIndexQualification = evaluateEditorialQualification(
+  candidate({
+    title: "Figma Help Center search results",
+    url: "https://help.figma.com/hc/en-us/search?query=MCP",
+    source: "Figma MCP Documentation",
+    snippet: "Figma Help Center documentation index and search results.",
+    cleanSummary: "Figma Help Center documentation index and search results.",
+    rawText: "Figma Help Center documentation index and search results.",
+    directDesignSystemEvidence: "",
+    readerValue: 36,
+    learningValue: 30
+  })
+);
+
+assert.equal(figmaDocsIndexQualification.qualificationDecision, "rejected");
+assert.match(figmaDocsIndexQualification.qualificationReason, /documentation or search index/i);
+
+const eqePipelineResult = qualifyEditorialCandidates([
+  candidate({
+    title: "AI Planning for Island Smallholder Farmers",
+    url: "https://arxiv.org/abs/4444.4444",
+    source: "arXiv",
+    snippet: "A generic AI planning paper about agriculture and island smallholder farmers.",
+    cleanSummary: "A generic AI planning paper about agriculture and island smallholder farmers.",
+    rawText: "A generic AI planning paper about agriculture and island smallholder farmers.",
+    directDesignSystemEvidence: "",
+    sourceCategory: "Research",
+    readerValue: 20,
+    learningValue: 20
+  }),
+  candidate({
+    title: "Storybook AI MCP component metadata for DS agents",
+    url: "https://storybook.js.org/releases/ai-mcp",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    cleanSummary: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    rawText: "Storybook AI MCP component metadata, docgen, docs automation and component APIs.",
+    directDesignSystemEvidence: "Storybook workflow anchor evidence in title/snippet."
+  })
+]);
+
+assert.equal(eqePipelineResult.qualifiedCandidates.length, 1);
+assert.equal(eqePipelineResult.qualifiedCandidates[0].url, "https://storybook.js.org/releases/ai-mcp");
+assert.ok(
+  eqePipelineResult.editorialQualification.every(
+    (qualification) =>
+      typeof qualification.domainAffinity === "number" &&
+      typeof qualification.audienceFit === "number" &&
+      typeof qualification.teachingValue === "number" &&
+      typeof qualification.practicalRelevance === "number" &&
+      qualification.qualificationReason.length > 0
+  ),
+  "EQE debug should expose full qualification scoring for every evaluated resource."
+);
 const thesisInput = [
   candidate({
     title: "Reasoning for Mobile User Experience with LLM Agents",

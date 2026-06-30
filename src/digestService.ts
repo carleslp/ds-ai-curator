@@ -32,6 +32,10 @@ import {
   type EditorialSelectionResult,
   type TopicGroup
 } from "./editorialSelection.js";
+import {
+  qualifyEditorialCandidates,
+  type EditorialQualification
+} from "./editorialQualification.js";
 import { selectEditorialThesis } from "./editorialThesis.js";
 import type { Digest, Resource } from "./emailTemplate.js";
 import {
@@ -200,6 +204,7 @@ type DailyDigestResult = {
   selectedPreview: SelectedPreview[];
   editorialScores: EditorialScoredCandidate[];
   topicClassifications: TopicClassification[];
+  editorialQualification: EditorialQualification[];
   editorialSelection: EditorialSelectionDecision[];
 };
 
@@ -761,6 +766,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   const thesisLedgerEntryCount = thesisLedgerPreview.totalEntries;
   let candidates: CandidateResource[] = [];
   let candidatePool: CandidateResource[] = [];
+  let editorialQualification: EditorialQualification[] = [];
   let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
   let sourceResults: SourceResult[] = [];
   let rejectedCandidates: EditorialSelectionDecision[] = [];
@@ -802,8 +808,14 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     sourceResults = collectionResult.sourceResults;
     console.log(`Step 2: Candidate collection completed (${candidates.length} candidates).`);
 
-    candidatePool = filterRecentCandidates(candidates);
-    console.log(`Step 3: Candidate normalization/recent-history pass completed (${candidatePool.length} candidates).`);
+    const recentCandidatePool = filterRecentCandidates(candidates);
+    console.log(`Step 3: Candidate normalization/recent-history pass completed (${recentCandidatePool.length} candidates).`);
+    const qualificationResult = qualifyEditorialCandidates(recentCandidatePool);
+    candidatePool = qualificationResult.qualifiedCandidates;
+    editorialQualification = qualificationResult.editorialQualification;
+    console.log(
+      `Step 3b: Editorial Qualification completed (${candidatePool.length} qualified, ${qualificationResult.rejectedCandidates.length} rejected).`
+    );
     console.log("Step 4: Topic classification and editorial scoring started.");
     if (thesisEngineEnabled) {
       const thesisResult = selectEditorialThesis(candidatePool);
@@ -920,6 +932,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedPreview: previewResources(fallbackDigest.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
+        editorialQualification,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -991,6 +1004,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedPreview: previewResources(editorialDigest.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
+        editorialQualification,
         editorialSelection: selectionResult.decisions
       };
     } catch (error) {
@@ -1060,6 +1074,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedPreview: previewResources(fallbackDigest.resources, selectionResult.decisions),
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
+          editorialQualification,
           editorialSelection: selectionResult.decisions
         };
       }
@@ -1115,6 +1130,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedPreview: [],
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
+          editorialQualification,
           editorialSelection: selectionResult.decisions
         };
       }
@@ -1173,6 +1189,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedPreview: previewResources(cachedDigestForResponse.resources, selectionResult.decisions),
           editorialScores: scoreEditorialCandidates(candidates),
           topicClassifications: classifyCandidatesTopics(candidates),
+          editorialQualification,
           editorialSelection: selectionResult.decisions
         };
       }
@@ -1226,6 +1243,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedPreview: [],
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
+        editorialQualification,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1284,6 +1302,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedPreview: [],
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
+        editorialQualification,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1342,6 +1361,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedPreview: previewResources(cachedDigestForResponse.resources, selectionResult.decisions),
         editorialScores: scoreEditorialCandidates(candidates),
         topicClassifications: classifyCandidatesTopics(candidates),
+        editorialQualification,
         editorialSelection: selectionResult.decisions
       };
     }
@@ -1396,6 +1416,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       selectedPreview: [],
       editorialScores: scoreEditorialCandidates(candidates),
       topicClassifications: classifyCandidatesTopics(candidates),
+      editorialQualification,
       editorialSelection: selectionResult.decisions
     };
   }
