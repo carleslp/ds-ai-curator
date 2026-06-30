@@ -1,4 +1,4 @@
-import type { CandidateResource } from "./collectCandidates.js";
+import type { CandidateResource, SourceCategory } from "./collectCandidates.js";
 import { scoreEditorialCandidate, type EditorialScore } from "./editorialEngine.js";
 import { classifyCandidateTopics, type AiTopic, type DesignSystemTopic, type WorkflowTopic } from "./topicClassifier.js";
 
@@ -19,6 +19,10 @@ export type EditorialSelectionDecision = {
   editorialValueMatch: boolean;
   editorialValueReason: string;
   actionabilityScore: number;
+  readerValue: number;
+  learningValue: number;
+  sourceCategory: SourceCategory;
+  rankingExplanation: string;
   mondayMorningChange: string;
   editorialTitle: string;
   aiTopics: AiTopic[];
@@ -394,12 +398,22 @@ function qualityRejection(
   return "";
 }
 
-function selectionReason(topicGroup: TopicGroup, score: EditorialScore, impactScore: number): string {
-  return `Candidate mapped to ${topicGroup} with editorial score ${score.totalScore} and workflow-impact score ${impactScore}.`;
+function audienceScore(candidate: CandidateResource): number {
+  return Math.round(candidate.readerValue * 0.55 + candidate.learningValue * 0.45);
 }
 
-function selectedBecause(topicGroup: TopicGroup, score: EditorialScore, impactScore: number, actionabilityScore: number): string {
-  return `Selected as the strongest ${topicGroup} signal after balancing actionability, workflow impact, quality, and topic diversity. Editorial score: ${score.totalScore}; actionability: ${actionabilityScore}; workflow impact: ${impactScore}.`;
+function selectionReason(topicGroup: TopicGroup, score: EditorialScore, impactScore: number, candidate: CandidateResource): string {
+  return `Candidate mapped to ${topicGroup} with editorial score ${score.totalScore}, workflow-impact score ${impactScore}, audience score ${audienceScore(candidate)}, and ${candidate.sourceCategory} source category.`;
+}
+
+function selectedBecause(
+  topicGroup: TopicGroup,
+  score: EditorialScore,
+  impactScore: number,
+  actionabilityScore: number,
+  candidate: CandidateResource
+): string {
+  return `Selected as the strongest ${topicGroup} signal after balancing evidence quality, workflow impact, audience fit, and source-category diversity. Editorial score: ${score.totalScore}; actionability: ${actionabilityScore}; workflow impact: ${impactScore}; reader value: ${candidate.readerValue}; learning value: ${candidate.learningValue}; source category: ${candidate.sourceCategory}.`;
 }
 
 function skippedBecause(reason: string): string {
@@ -416,9 +430,15 @@ function aiResearchRejectionReason(decision: Pick<EditorialSelectionDecision, "t
 
 function compareCandidates(a: ScoredCandidate, b: ScoredCandidate): number {
   const actionabilityDifference = b.decision.actionabilityScore - a.decision.actionabilityScore;
-  if (actionabilityDifference !== 0) return actionabilityDifference;
+  if (Math.abs(actionabilityDifference) > 2) return actionabilityDifference;
 
   const scoreDifference = b.decision.editorialScore.totalScore - a.decision.editorialScore.totalScore;
+  if (Math.abs(scoreDifference) > 6) return scoreDifference;
+
+  const audienceDifference = audienceScore(b.candidate) - audienceScore(a.candidate);
+  if (audienceDifference !== 0) return audienceDifference;
+
+  if (actionabilityDifference !== 0) return actionabilityDifference;
   if (scoreDifference !== 0) return scoreDifference;
 
   const impactDifference = b.workflowImpactScore - a.workflowImpactScore;
@@ -435,6 +455,14 @@ function compareWorkflowImpact(a: ScoredCandidate, b: ScoredCandidate): number {
   if (workflowDifference !== 0) return workflowDifference;
 
   return b.decision.editorialScore.enterpriseScore - a.decision.editorialScore.enterpriseScore;
+}
+
+function isEquivalentAudienceAlternative(candidate: ScoredCandidate, bestCandidate: ScoredCandidate): boolean {
+  return (
+    bestCandidate.decision.actionabilityScore - candidate.decision.actionabilityScore <= 2 &&
+    bestCandidate.decision.editorialScore.totalScore - candidate.decision.editorialScore.totalScore <= 6 &&
+    bestCandidate.workflowImpactScore - candidate.workflowImpactScore <= 6
+  );
 }
 
 export function selectEditorialCandidates(candidates: CandidateResource[]): EditorialSelectionResult {
@@ -455,6 +483,10 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       ...missionMatch,
       ...editorialValue,
       actionabilityScore,
+      readerValue: candidate.readerValue,
+      learningValue: candidate.learningValue,
+      sourceCategory: candidate.sourceCategory,
+      rankingExplanation: candidate.rankingExplanation,
       mondayMorningChange,
       editorialTitle: editorialTitleFor(candidate),
       aiTopics: topics.aiTopics,
@@ -469,7 +501,7 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       workflowImpactScore: impactScore,
       decision: {
         ...baseDecision,
-        selectionReason: selectionReason(topicGroup, editorialScore, impactScore),
+        selectionReason: selectionReason(topicGroup, editorialScore, impactScore, candidate),
         rejectionReason,
         selectedBecause: "",
         skippedBecause: rejectionReason
@@ -480,18 +512,31 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
   const qualified = scoredCandidates.filter((item) => !item.decision.rejectionReason);
   const selected: ScoredCandidate[] = [];
   const selectedGroups = new Set<TopicGroup>();
+  const selectedSourceCategories = new Set<SourceCategory>();
 
   for (const group of targetGroups) {
-    const bestCandidate = qualified
+    const groupCandidates = qualified
       .filter((item) => item.decision.topicGroup === group && !selectedGroups.has(item.decision.topicGroup))
-      .sort(compareCandidates)[0];
+      .sort(compareCandidates);
+    const bestCandidate = groupCandidates[0];
 
     if (!bestCandidate) {
       continue;
     }
 
-    selected.push(bestCandidate);
+    const categoryDiverseAlternative = groupCandidates.find(
+      (item) =>
+        !selectedSourceCategories.has(item.candidate.sourceCategory) &&
+        item.candidate.sourceCategory !== bestCandidate.candidate.sourceCategory &&
+        isEquivalentAudienceAlternative(item, bestCandidate)
+    );
+    const selectedCandidate = selectedSourceCategories.has(bestCandidate.candidate.sourceCategory) && categoryDiverseAlternative
+      ? categoryDiverseAlternative
+      : bestCandidate;
+
+    selected.push(selectedCandidate);
     selectedGroups.add(group);
+    selectedSourceCategories.add(selectedCandidate.candidate.sourceCategory);
   }
 
   const finalSelected = selected.filter((item) => !aiResearchRejectionReason(item.decision));
@@ -502,7 +547,8 @@ export function selectEditorialCandidates(candidates: CandidateResource[]): Edit
       item.decision.topicGroup,
       item.decision.editorialScore,
       item.workflowImpactScore,
-      item.decision.actionabilityScore
+      item.decision.actionabilityScore,
+      item.candidate
     ),
     skippedBecause: ""
   }));

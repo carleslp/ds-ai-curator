@@ -177,23 +177,33 @@ Reject:
 - beginner/basic Design System content such as "101", "basics", "beginner", "introduction", "getting started", "building blocks", "guide to design tokens", "what are design tokens", "typography as a system", or "motion design tokens" unless it explicitly discusses AI, MCP, agents, automation, design-to-code, Storybook integration, QA automation, or token intelligence
 - Storybook release notes unless they explicitly mention Storybook AI, MCP, component manifest, docgen, AI checklist, component metadata, docs automation, QA automation, or accessibility automation
 
-For every candidate ask:
-1. Would this help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow?
-2. Is this worth one of only five reading slots today?
-3. Would this teach something new to a Design System Designer working on a mature enterprise DS?
+	For every candidate ask:
+	1. Would this help improve a Figma -> Design Tokens -> Storybook -> React / React Native Design System workflow?
+	2. Is this worth one of only five reading slots today?
+	3. Would this teach something new to a Design System Designer working on a mature enterprise DS?
+	4. Is it readable and useful for Design System Designers, Product Designers, or UX Engineers rather than primarily for AI researchers, compiler engineers, or maintainers?
 
-Use this internal final ranking formula:
-finalScore =
-worthYourTimeScore * 0.35 +
-relevanceScore * 0.25 +
-practicalityScore * 0.15 +
-sourceScore * 0.10 +
-technicalDepthScore * 0.10 +
-noveltyScore * 0.05
+	Use this internal final ranking formula:
+	finalScore =
+	worthYourTimeScore * 0.28 +
+	relevanceScore * 0.20 +
+	practicalityScore * 0.14 +
+	sourceScore * 0.08 +
+	technicalDepthScore * 0.08 +
+	noveltyScore * 0.04 +
+	(readerValue / 20) * 0.09 +
+	(learningValue / 20) * 0.09
 
-Use recencyScore as a tiebreaker.
+	Use recencyScore as a tiebreaker.
+	Use sourceCategory to balance the list:
+	- Official sources are strong evidence.
+	- Practical sources are often better recommended reading.
+	- Talk sources are useful explainers.
+	- Community sources are adoption signals.
+	- Research sources are trend detection and should not outrank clearer teaching resources when evidence quality is similar.
+	- Social sources are weak signals only.
 
-Do not select a resource with:
+	Do not select a resource with:
 - relevance_score < 4
 - worth_your_time_score < 4
 - sourceScore < 3 unless it is exceptionally relevant

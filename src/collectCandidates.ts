@@ -1,6 +1,8 @@
 import { curatedSources, type CuratedSource } from "./sources.js";
 import { cleanText, decodeHtmlEntities, stripHtmlTags, summarizeReleaseText, truncateText } from "./textUtils.js";
 
+export type SourceCategory = "Official" | "Practical" | "Talk" | "Community" | "Research" | "Social";
+
 export type CandidateResource = {
   title: string;
   url: string;
@@ -17,6 +19,10 @@ export type CandidateResource = {
   practicalityScore: number;
   noveltyScore: number;
   worthYourTimeScore: number;
+  readerValue: number;
+  learningValue: number;
+  sourceCategory: SourceCategory;
+  rankingExplanation: string;
   directDesignSystemEvidence: string;
 };
 
@@ -40,6 +46,10 @@ type UnscoredCandidateResource = Omit<
   | "practicalityScore"
   | "noveltyScore"
   | "worthYourTimeScore"
+  | "readerValue"
+  | "learningValue"
+  | "sourceCategory"
+  | "rankingExplanation"
   | "directDesignSystemEvidence"
 >;
 
@@ -68,6 +78,10 @@ function textForScoring(candidate: Pick<CandidateResource, "title" | "source" | 
 
 function countMatches(text: string, terms: string[]): number {
   return terms.reduce((count, term) => count + (text.includes(term) ? 1 : 0), 0);
+}
+
+function clampAudienceValue(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
 
 function compactText(value: string): string {
@@ -119,6 +133,150 @@ function directDesignSystemEvidenceFor(candidate: UnscoredCandidateResource): st
   }
 
   return evidenceSentence(candidate, match.label, match.terms);
+}
+
+function sourceCategoryFor(candidate: UnscoredCandidateResource): SourceCategory {
+  const source = candidate.source.toLowerCase();
+  const url = candidate.url.toLowerCase();
+  const title = candidate.title.toLowerCase();
+  const combined = `${source} ${url} ${title}`;
+
+  if (/(instagram|threads|bsky|bluesky|twitter\.com|x\.com)/.test(combined)) {
+    return "Social";
+  }
+
+  if (source.includes("arxiv") || url.includes("arxiv.org") || source.includes("acm") || source.includes("research")) {
+    return "Research";
+  }
+
+  if (
+    combined.includes("youtube") ||
+    combined.includes("conference") ||
+    combined.includes("config") ||
+    combined.includes("session") ||
+    combined.includes("podcast") ||
+    combined.includes("frontend masters") ||
+    combined.includes("syntax") ||
+    combined.includes("latent space") ||
+    combined.includes("react conf") ||
+    combined.includes("google i/o") ||
+    combined.includes("microsoft build") ||
+    combined.includes("github universe") ||
+    combined.includes("css day") ||
+    combined.includes("design systems london") ||
+    combined.includes("into design systems")
+  ) {
+    return "Talk";
+  }
+
+  if (
+    combined.includes("github.com/search") ||
+    combined.includes("discussions") ||
+    combined.includes("reddit") ||
+    combined.includes("linkedin") ||
+    combined.includes("dev.to") ||
+    combined.includes("hashnode") ||
+    combined.includes("designer blog")
+  ) {
+    return "Community";
+  }
+
+  if (
+    combined.includes("medium") ||
+    combined.includes("smashing") ||
+    combined.includes("ux collective") ||
+    combined.includes("designops") ||
+    combined.includes("sidebar") ||
+    combined.includes("figmalion") ||
+    combined.includes("femke") ||
+    combined.includes("tldr design") ||
+    combined.includes("lenny") ||
+    combined.includes("nielsen norman") ||
+    combined.includes("css-tricks") ||
+    combined.includes("chrome developers") ||
+    combined.includes("react blog") ||
+    combined.includes("toools") ||
+    combined.includes("product disrupt") ||
+    combined.includes("evil martians")
+  ) {
+    return "Practical";
+  }
+
+  return "Official";
+}
+
+function baseAudienceValues(category: SourceCategory): { readerValue: number; learningValue: number } {
+  switch (category) {
+    case "Official":
+      return { readerValue: 62, learningValue: 58 };
+    case "Practical":
+      return { readerValue: 88, learningValue: 90 };
+    case "Talk":
+      return { readerValue: 78, learningValue: 88 };
+    case "Community":
+      return { readerValue: 58, learningValue: 55 };
+    case "Research":
+      return { readerValue: 34, learningValue: 38 };
+    case "Social":
+      return { readerValue: 28, learningValue: 24 };
+  }
+}
+
+function audienceValuesFor(candidate: UnscoredCandidateResource, category: SourceCategory): { readerValue: number; learningValue: number; reasons: string[] } {
+  const text = textForScoring(candidate);
+  const base = baseAudienceValues(category);
+  let readerValue = base.readerValue;
+  let learningValue = base.learningValue;
+  const reasons = [`${category} source profile`];
+
+  const teachingSignals = ["guide", "tutorial", "walkthrough", "playbook", "checklist", "how to", "example", "examples", "pattern", "case study"];
+  const practicalSignals = ["workflow", "implementation", "migration", "integration", "docs", "documentation", "component", "figma", "storybook", "accessibility", "tokens"];
+  const denseSignals = ["paper", "benchmark", "abstract", "dataset", "survey", "release notes", "changelog", "alpha", "beta"];
+  const designerSignals = ["designer", "designers", "product design", "ux", "figma", "design system", "design systems", "tokens", "components"];
+
+  const teachingMatches = countMatches(text, teachingSignals);
+  const practicalMatches = countMatches(text, practicalSignals);
+  const designerMatches = countMatches(text, designerSignals);
+  const denseMatches = countMatches(text, denseSignals);
+
+  if (teachingMatches > 0) {
+    readerValue += Math.min(14, teachingMatches * 4);
+    learningValue += Math.min(18, teachingMatches * 5);
+    reasons.push("teaching cues");
+  }
+
+  if (practicalMatches > 0) {
+    readerValue += Math.min(10, practicalMatches * 2);
+    learningValue += Math.min(12, practicalMatches * 3);
+    reasons.push("practical workflow cues");
+  }
+
+  if (designerMatches > 0) {
+    readerValue += Math.min(10, designerMatches * 2);
+    reasons.push("designer-facing language");
+  }
+
+  if (denseMatches > 0) {
+    readerValue -= Math.min(18, denseMatches * 4);
+    learningValue -= Math.min(14, denseMatches * 3);
+    reasons.push("dense or announcement-style format");
+  }
+
+  return {
+    readerValue: clampAudienceValue(readerValue),
+    learningValue: clampAudienceValue(learningValue),
+    reasons
+  };
+}
+
+function rankingExplanationFor(
+  category: SourceCategory,
+  readerValue: number,
+  learningValue: number,
+  worthYourTimeScore: number,
+  reasons: string[]
+): string {
+  return `${category} source. Reader value ${readerValue}/100 and learning value ${learningValue}/100 from ${reasons.join(", ")}; evidence quality remains represented by worthYourTimeScore ${worthYourTimeScore}/5.`;
 }
 
 function calculateRecencyScore(publishedDate: string): number {
@@ -207,6 +365,8 @@ function scoreCandidate(candidate: UnscoredCandidateResource): CandidateResource
   const noveltyScore = clampScore(2 + Math.min(3, countMatches(text, noveltySignals)));
   const recencyScore = calculateRecencyScore(candidate.published_date);
   const directDesignSystemEvidence = directDesignSystemEvidenceFor(candidate);
+  const sourceCategory = sourceCategoryFor(candidate);
+  const audienceValues = audienceValuesFor(candidate, sourceCategory);
   const worthYourTimeScore = clampScore(
     relevanceScore * 0.35 +
       practicalityScore * 0.25 +
@@ -223,6 +383,16 @@ function scoreCandidate(candidate: UnscoredCandidateResource): CandidateResource
     practicalityScore,
     noveltyScore,
     worthYourTimeScore,
+    readerValue: audienceValues.readerValue,
+    learningValue: audienceValues.learningValue,
+    sourceCategory,
+    rankingExplanation: rankingExplanationFor(
+      sourceCategory,
+      audienceValues.readerValue,
+      audienceValues.learningValue,
+      worthYourTimeScore,
+      audienceValues.reasons
+    ),
     directDesignSystemEvidence
   };
 }
@@ -418,12 +588,14 @@ function finalizeCandidates(candidates: UnscoredCandidateResource[]): CandidateR
     .filter(isRecentEnough)
     .map(scoreCandidate)
     .sort((a, b) => {
+      const audienceDifference = b.readerValue + b.learningValue - (a.readerValue + a.learningValue);
       const scoreDifference =
-        b.worthYourTimeScore +
-        b.relevanceScore +
-        b.sourceScore +
-        b.recencyScore -
-        (a.worthYourTimeScore + a.relevanceScore + a.sourceScore + a.recencyScore);
+        b.worthYourTimeScore * 20 +
+        b.relevanceScore * 14 +
+        b.sourceScore * 10 +
+        b.recencyScore * 6 +
+        audienceDifference * 0.35 -
+        (a.worthYourTimeScore * 20 + a.relevanceScore * 14 + a.sourceScore * 10 + a.recencyScore * 6);
 
       if (scoreDifference !== 0) {
         return scoreDifference;

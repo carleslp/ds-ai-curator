@@ -86,6 +86,10 @@ type CandidatePreview = {
   source: string;
   published_date: string;
   sourceScore: number;
+  readerValue: number;
+  learningValue: number;
+  sourceCategory: CandidateResource["sourceCategory"];
+  rankingExplanation: string;
   directDesignSystemEvidence: string;
   editorialScore: EditorialScore;
   selectionReason: string;
@@ -123,6 +127,10 @@ type SelectedPreview = {
   editorialValueMatch?: boolean;
   editorialValueReason?: string;
   actionabilityScore?: number;
+  readerValue?: number;
+  learningValue?: number;
+  sourceCategory?: CandidateResource["sourceCategory"];
+  rankingExplanation?: string;
   mondayMorningChange?: string;
   editorialTitle?: string;
   aiTopics: AiTopic[];
@@ -487,6 +495,10 @@ function previewCandidates(candidates: CandidateResource[], decisions: Editorial
       source: candidate.source,
       published_date: candidate.published_date,
       sourceScore: candidate.sourceScore,
+      readerValue: decision?.readerValue ?? candidate.readerValue,
+      learningValue: decision?.learningValue ?? candidate.learningValue,
+      sourceCategory: decision?.sourceCategory ?? candidate.sourceCategory,
+      rankingExplanation: decision?.rankingExplanation ?? candidate.rankingExplanation,
       directDesignSystemEvidence: candidate.directDesignSystemEvidence,
       editorialScore: decision?.editorialScore ?? scoreEditorialCandidate(candidate, candidates),
       selectionReason: decision?.selectionReason ?? "",
@@ -534,6 +546,10 @@ function previewResources(resources: Resource[], decisions: EditorialSelectionDe
       editorialValueMatch: decision?.editorialValueMatch,
       editorialValueReason: decision?.editorialValueReason,
       actionabilityScore: decision?.actionabilityScore,
+      readerValue: decision?.readerValue,
+      learningValue: decision?.learningValue,
+      sourceCategory: decision?.sourceCategory,
+      rankingExplanation: decision?.rankingExplanation,
       mondayMorningChange: decision?.mondayMorningChange,
       editorialTitle: decision?.editorialTitle,
       aiTopics: classifyTopicsFromResource(resource).aiTopics,
@@ -692,6 +708,10 @@ function classifyTopicsFromResource(resource: Resource): Pick<TopicClassificatio
     practicalityScore: 3,
     noveltyScore: 3,
     worthYourTimeScore: resource.worth_your_time_score ?? 3,
+    readerValue: 0,
+    learningValue: 0,
+    sourceCategory: "Official",
+    rankingExplanation: "",
     directDesignSystemEvidence: resource.directDesignSystemEvidence ?? ""
   });
 }

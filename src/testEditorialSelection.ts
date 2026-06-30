@@ -22,6 +22,10 @@ function candidate(overrides: Partial<CandidateResource>): CandidateResource {
     practicalityScore: 5,
     noveltyScore: 5,
     worthYourTimeScore: 5,
+    readerValue: 60,
+    learningValue: 60,
+    sourceCategory: "Official",
+    rankingExplanation: "Official source. Reader value 60/100 and learning value 60/100 from test fixture.",
     directDesignSystemEvidence: "Direct mature workflow evidence.",
     ...overrides
   };
@@ -224,6 +228,51 @@ assert.equal(evidenceBeforeSelectionResult.evidenceSetSummary.evidenceCount, 1);
 assert.equal(evidenceBeforeSelectionResult.selectionResult.selectedCandidates.length, 1);
 assert.equal(evidenceBeforeSelectionResult.selectionResult.selectedCandidates[0].url, "https://example.com/ai-design-token-semantics");
 assert.equal(evidenceBeforeSelectionResult.leadSignal.evidence[0].resourceRef.url, "https://example.com/ai-design-token-semantics");
+
+const audienceRankingResult = selectEditorialCandidates([
+  candidate({
+    title: "Figma release notes for AI design-to-code metadata",
+    url: "https://www.figma.com/release-notes/ai-design-to-code-metadata",
+    source: "Figma Releases",
+    snippet: "Release notes: AI design-to-code metadata, component generation, Dev Mode and Figma component library updates.",
+    cleanSummary: "Release notes: AI design-to-code metadata, component generation, Dev Mode and Figma component library updates.",
+    rawText: "Release notes changelog for Figma AI design-to-code metadata and component generation.",
+    directDesignSystemEvidence: "Figma metadata and design-to-code evidence in title/snippet.",
+    readerValue: 48,
+    learningValue: 44,
+    sourceCategory: "Official",
+    rankingExplanation: "Official source. Reader value 48/100 and learning value 44/100 from release-note format.",
+    worthYourTimeScore: 5
+  }),
+  candidate({
+    title: "How Figma metadata changes AI design-to-code for Design System teams",
+    url: "https://medium.com/design-systems/figma-metadata-ai-design-to-code-guide",
+    source: "Medium Design Systems",
+    snippet: "Guide with examples, workflow checklist and implementation guidance for Figma metadata, design-to-code, component generation and Design System governance.",
+    cleanSummary:
+      "Guide with examples, workflow checklist and implementation guidance for Figma metadata, design-to-code, component generation and Design System governance.",
+    rawText:
+      "A practical guide for designers with examples, workflow checklist and implementation guidance for Figma metadata, AI design-to-code and Design System governance.",
+    directDesignSystemEvidence: "Figma metadata and design-to-code evidence in title/snippet.",
+    readerValue: 94,
+    learningValue: 96,
+    sourceCategory: "Practical",
+    rankingExplanation: "Practical source. Reader value 94/100 and learning value 96/100 from teaching cues.",
+    worthYourTimeScore: 5
+  })
+]);
+
+const audienceSelected = audienceRankingResult.selectedDecisions.find((decision) => decision.topicGroup === "Figma");
+assert.ok(audienceSelected, "Audience-aware ranking fixture should select a Figma item.");
+assert.equal(
+  audienceSelected.url,
+  "https://medium.com/design-systems/figma-metadata-ai-design-to-code-guide",
+  "When evidence quality is similar, the resource that teaches Design System designers better should rank higher."
+);
+assert.equal(audienceSelected.sourceCategory, "Practical");
+assert.ok(audienceSelected.readerValue >= 90, "Selected debug should expose readerValue.");
+assert.ok(audienceSelected.learningValue >= 90, "Selected debug should expose learningValue.");
+assert.match(audienceSelected.rankingExplanation, /Practical source.*Reader value/i);
 
 const diversityResult = selectEditorialThesis([
   candidate({
