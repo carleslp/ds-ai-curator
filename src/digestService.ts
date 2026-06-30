@@ -93,6 +93,19 @@ type DigestMode =
   | "cachedDigest"
   | "emergencyFallback";
 
+type SynthesisMode = "live" | "providerFallback" | "candidateFallback";
+
+type ProviderAttempt = {
+  provider: ProviderName;
+  status: "success" | "failed";
+  error?: string;
+};
+
+type ProviderFailure = {
+  provider: ProviderName;
+  error: string;
+};
+
 type CandidatePreview = {
   title: string;
   url: string;
@@ -159,6 +172,15 @@ type DailyDigestResult = {
   mode: DigestMode;
   hasOpenAIKey: boolean;
   hasGeminiKey: boolean;
+  usableProviderCount: number;
+  providerWarning: string;
+  providerAttempts: ProviderAttempt[];
+  providerUsed: ProviderName | null;
+  providerFailures: ProviderFailure[];
+  synthesisMode: SynthesisMode;
+  degraded: boolean;
+  degradedReason: string;
+  fallbackSectionsApplied: string[];
   thesisEngineEnabled: boolean;
   thesisLedgerEnabled: boolean;
   thesisLedgerEntryCount: number;
@@ -764,29 +786,70 @@ function classifyTopicsFromResource(resource: Resource): Pick<TopicClassificatio
 async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]): Promise<{
   digest: Digest;
   provider: ProviderName;
+  providerAttempts: ProviderAttempt[];
+  providerFailures: ProviderFailure[];
+  synthesisMode: SynthesisMode;
 }> {
+  const attempts: ProviderAttempt[] = [];
+  const failures: ProviderFailure[] = [];
+
   if (process.env.OPENAI_API_KEY) {
     console.log("LLM ranking provider: OpenAI.");
-    return {
-      digest: await rankAndSummarizeWithOpenAI(filteredCandidates),
-      provider: "openAI"
-    };
+    try {
+      const digest = await rankAndSummarizeWithOpenAI(filteredCandidates);
+      attempts.push({ provider: "openAI", status: "success" });
+      return {
+        digest,
+        provider: "openAI",
+        providerAttempts: attempts,
+        providerFailures: failures,
+        synthesisMode: failures.length > 0 ? "providerFallback" : "live"
+      };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      console.error(`LLM provider failed: OpenAI - ${message}`);
+      attempts.push({ provider: "openAI", status: "failed", error: message });
+      failures.push({ provider: "openAI", error: message });
+    }
   }
 
   if (process.env.GEMINI_API_KEY) {
     console.log("LLM ranking provider: Gemini.");
-    return {
-      digest: await rankAndSummarizeWithGemini(filteredCandidates),
-      provider: "gemini"
-    };
+    try {
+      const digest = await rankAndSummarizeWithGemini(filteredCandidates);
+      attempts.push({ provider: "gemini", status: "success" });
+      return {
+        digest,
+        provider: "gemini",
+        providerAttempts: attempts,
+        providerFailures: failures,
+        synthesisMode: failures.length > 0 ? "providerFallback" : "live"
+      };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      console.error(`LLM provider failed: Gemini - ${message}`);
+      attempts.push({ provider: "gemini", status: "failed", error: message });
+      failures.push({ provider: "gemini", error: message });
+    }
   }
 
-  throw new Error("No LLM provider key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.");
+  const failureSummary = failures.length
+    ? failures.map((failure) => `${failure.provider}: ${failure.error}`).join(" | ")
+    : "No LLM provider key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.";
+  const error = new Error(failureSummary) as Error & {
+    providerAttempts?: ProviderAttempt[];
+    providerFailures?: ProviderFailure[];
+  };
+  error.providerAttempts = attempts;
+  error.providerFailures = failures;
+  throw error;
 }
 
 export async function getDailyDigest(): Promise<DailyDigestResult> {
   const hasOpenAIKey = Boolean(process.env.OPENAI_API_KEY);
   const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY);
+  const usableProviderCount = [hasOpenAIKey, hasGeminiKey].filter(Boolean).length;
+  const providerWarning = usableProviderCount === 0 ? "No live synthesis provider available." : "";
   const thesisEngineEnabled = thesisEngineEnabledFromEnv();
   const thesisLedgerEnabled = thesisEngineEnabled;
   const thesisLedgerPreview = thesisLedgerEnabled ? await createLedgerPreview() : emptyLedgerPreview();
@@ -825,9 +888,43 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let editorialBrief: EditorialBrief = emptyEditorialBrief();
   let learningRecommendation: LearningRecommendationDebug = emptyLearningRecommendation();
   let supportingResourceRanking = emptySupportingResourceRanking();
+  let providerAttempts: ProviderAttempt[] = [];
+  let providerFailures: ProviderFailure[] = [];
+  let providerUsed: ProviderName | null = null;
+  let synthesisMode: SynthesisMode = usableProviderCount > 0 ? "live" : "candidateFallback";
+  const synthesisDebug = (
+    degraded: boolean,
+    degradedReason = "",
+    fallbackSectionsApplied: string[] = []
+  ): Pick<
+    DailyDigestResult,
+    | "usableProviderCount"
+    | "providerWarning"
+    | "providerAttempts"
+    | "providerUsed"
+    | "providerFailures"
+    | "synthesisMode"
+    | "degraded"
+    | "degradedReason"
+    | "fallbackSectionsApplied"
+  > => ({
+    usableProviderCount,
+    providerWarning,
+    providerAttempts,
+    providerUsed,
+    providerFailures,
+    synthesisMode,
+    degraded,
+    degradedReason,
+    fallbackSectionsApplied
+  });
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
   console.log(`Provider config: GEMINI_API_KEY exists? ${hasGeminiKey}`);
+  console.log(`Provider config: usable provider count ${usableProviderCount}.`);
+  if (providerWarning) {
+    console.warn(providerWarning);
+  }
   console.log(`Provider config: THESIS_ENGINE enabled? ${thesisEngineEnabled}`);
 
   try {
@@ -922,11 +1019,16 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       if (fallbackDigest.resources.length > 0) {
         rememberDigest(fallbackDigest);
       }
+      synthesisMode = "candidateFallback";
       return {
         digest: fallbackDigest,
         mode: "candidateFallbackEmptySelection",
         hasOpenAIKey,
         hasGeminiKey,
+        ...synthesisDebug(true, "No candidates survived editorial selection; deterministic fallback digest was used.", [
+          "candidateFallbackDigest",
+          "emptySelection"
+        ]),
         thesisEngineEnabled,
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
@@ -979,6 +1081,10 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     try {
       console.log("Step 6: LLM ranking/summarization started.");
       const ranked = await rankWithAvailableProvider(selectionResult.selectedCandidates);
+      providerAttempts = ranked.providerAttempts;
+      providerFailures = ranked.providerFailures;
+      providerUsed = ranked.provider;
+      synthesisMode = ranked.synthesisMode;
       const editorialAssembly = applyRepresentativeRenderingAssembly(
         applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
         selectionResult,
@@ -1000,6 +1106,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: ranked.provider === "openAI" ? "liveOpenAI" : "liveGemini",
         hasOpenAIKey,
         hasGeminiKey,
+        ...synthesisDebug(false),
         thesisEngineEnabled,
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
@@ -1050,6 +1157,14 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     } catch (error) {
       const fallbackReason = getErrorMessage(error);
       console.error(`LLM ranking failed: ${fallbackReason}`);
+      const providerError = error as {
+        providerAttempts?: ProviderAttempt[];
+        providerFailures?: ProviderFailure[];
+      };
+      providerAttempts = providerError.providerAttempts ?? providerAttempts;
+      providerFailures = providerError.providerFailures ?? providerFailures;
+      providerUsed = null;
+      synthesisMode = "candidateFallback";
 
       const fallbackAssembly = applyRepresentativeRenderingAssembly(
         buildCandidateFallbackDigest(selectionResult),
@@ -1070,6 +1185,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           mode: "candidateFallback",
           hasOpenAIKey,
           hasGeminiKey,
+          ...synthesisDebug(true, fallbackReason, ["candidateFallbackDigest", "representativeRenderingAssembly"]),
           thesisEngineEnabled,
           thesisLedgerEnabled,
           thesisLedgerEntryCount,
@@ -1128,6 +1244,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           mode: "candidateFallbackEmptySelection",
           hasOpenAIKey,
           hasGeminiKey,
+          ...synthesisDebug(true, fallbackReason, ["emptySelectionDigest"]),
           thesisEngineEnabled,
           thesisLedgerEnabled,
           thesisLedgerEntryCount,
@@ -1188,6 +1305,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           mode: "cachedDigest",
           hasOpenAIKey,
           hasGeminiKey,
+          ...synthesisDebug(true, fallbackReason, ["cachedDigest"]),
           thesisEngineEnabled,
           thesisLedgerEnabled,
           thesisLedgerEntryCount,
@@ -1243,6 +1361,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "emergencyFallback",
         hasOpenAIKey,
         hasGeminiKey,
+        ...synthesisDebug(true, fallbackReason, ["emergencyFallbackDigest"]),
         thesisEngineEnabled,
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
@@ -1294,6 +1413,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   } catch (error) {
     const fallbackReason = getErrorMessage(error);
     console.error(`Candidate pipeline failed: ${fallbackReason}`);
+    synthesisMode = "candidateFallback";
 
     if (candidatePool.length > 0) {
       const emptyDigest = applyLearningRecommendation(createEmptySelectionDigest(), learningRecommendation);
@@ -1303,6 +1423,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "candidateFallbackEmptySelection",
         hasOpenAIKey,
         hasGeminiKey,
+        ...synthesisDebug(true, fallbackReason, ["emptySelectionDigest"]),
         thesisEngineEnabled,
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
@@ -1363,6 +1484,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         mode: "cachedDigest",
         hasOpenAIKey,
         hasGeminiKey,
+        ...synthesisDebug(true, fallbackReason, ["cachedDigest"]),
         thesisEngineEnabled,
         thesisLedgerEnabled,
         thesisLedgerEntryCount,
@@ -1419,6 +1541,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       mode: "emergencyFallback",
       hasOpenAIKey,
       hasGeminiKey,
+      ...synthesisDebug(true, fallbackReason, ["emergencyFallbackDigest"]),
       thesisEngineEnabled,
       thesisLedgerEnabled,
       thesisLedgerEntryCount,
