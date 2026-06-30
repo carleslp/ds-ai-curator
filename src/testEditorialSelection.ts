@@ -354,6 +354,59 @@ assert.deepEqual(
   "Rendered resource debug titles should match selected representative resources."
 );
 
+const deliberationResult = selectEditorialThesis([
+  candidate({
+    title: "Storybook AI MCP component metadata for executable docs",
+    url: "https://storybook.js.org/releases/ai-mcp-executable-docs",
+    source: "Storybook Releases",
+    snippet: "Storybook AI MCP component metadata, component manifest, docgen and machine-readable documentation automation.",
+    cleanSummary: "Storybook AI MCP component metadata, component manifest, docgen and machine-readable documentation automation.",
+    directDesignSystemEvidence: "Storybook component metadata and MCP evidence in title/snippet."
+  }),
+  candidate({
+    title: "Figma metadata design-to-code AI component generation",
+    url: "https://example.com/figma-metadata-design-to-code-ai",
+    source: "Design Systems Weekly",
+    snippet:
+      "Figma metadata drives AI design-to-code, code generation, component generation, production-ready UI and component reuse.",
+    cleanSummary:
+      "Figma metadata drives AI design-to-code, code generation, component generation, production-ready UI and component reuse.",
+    directDesignSystemEvidence: "Figma metadata and design-to-code evidence in title/snippet."
+  }),
+  candidate({
+    title: "AI accessibility automation for Design System QA",
+    url: "https://example.com/ai-accessibility-design-system-qa",
+    source: "Accessibility Engineering",
+    snippet: "AI accessibility automation validates React component library QA, governance and WCAG review rules.",
+    cleanSummary: "AI accessibility automation validates React component library QA, governance and WCAG review rules.",
+    directDesignSystemEvidence: "Design System QA, React component library and accessibility automation evidence in title/snippet."
+  })
+]);
+
+assert.ok(deliberationResult.editorialDeliberation.dominantStory, "Editorial Deliberation should always pick one dominant story.");
+assert.notEqual(deliberationResult.editorialDeliberation.dominantStory?.story, "No story this week");
+assert.ok(
+  deliberationResult.editorialDeliberation.detectedStories.length >= 3,
+  "Editorial Deliberation should receive Theme Discovery clusters without replacing them."
+);
+assert.ok(
+  deliberationResult.editorialDeliberation.mergedClusters.some((merge) => merge.clusterClaims.length >= 2),
+  "Related Storybook metadata and design-to-code clusters should merge into one narrative candidate."
+);
+assert.ok(
+  deliberationResult.editorialDeliberation.secondaryStories.length >= 1,
+  "Unrelated clusters should be preserved as secondary stories."
+);
+assert.ok(
+  deliberationResult.editorialDeliberation.reasoning.some((reason) => /does not decide publication readiness/i.test(reason)),
+  "Editorial Deliberation debug should state that publication gating remains outside this stage."
+);
+assert.ok(
+  deliberationResult.evidenceGroups.some((group) => /Storybook/i.test(group.claim)) &&
+    deliberationResult.evidenceGroups.some((group) => /Figma metadata|Design-to-Code/i.test(group.claim)),
+  "Theme Discovery output should remain available as separate groups even when deliberation merges the story."
+);
+
 const invalidResearchSelection = result.selectedDecisions.find(
   (decision) => decision.topicGroup === "AI Research" && decision.designSystemTopics.length === 0
 );

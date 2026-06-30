@@ -43,6 +43,7 @@ import { truncateText } from "./textUtils.js";
 import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
 import type {
   CandidateSignal,
+  EditorialDeliberationDecision,
   EvidenceGroup,
   EvidencePromotionRejection,
   EvidenceSetSummary,
@@ -140,6 +141,7 @@ type DailyDigestResult = {
   evidencePromotionInputCount: number;
   promotedEvidenceCount: number;
   evidenceGroups: EvidenceGroup[];
+  editorialDeliberation: EditorialDeliberationDecision;
   leadSignalSelectionReason: string;
   runnerUpEvidenceGroups: EvidenceGroup[];
   evidencePromotionRejections: EvidencePromotionRejection[];
@@ -186,6 +188,16 @@ function emptySupportingResourceRanking(): EditorialThesisResult["supportingReso
     candidatesConsidered: 0,
     selected: [],
     rejected: []
+  };
+}
+
+function emptyEditorialDeliberation(): EditorialDeliberationDecision {
+  return {
+    detectedStories: [],
+    mergedClusters: [],
+    dominantStory: null,
+    secondaryStories: [],
+    reasoning: ["Editorial Deliberation did not run because no Theme Discovery clusters were available."]
   };
 }
 
@@ -702,6 +714,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let evidencePromotionInputCount = 0;
   let promotedEvidenceCount = 0;
   let evidenceGroups: EvidenceGroup[] = [];
+  let editorialDeliberation: EditorialDeliberationDecision = emptyEditorialDeliberation();
   let leadSignalSelectionReason = "";
   let runnerUpEvidenceGroups: EvidenceGroup[] = [];
   let evidencePromotionRejections: EvidencePromotionRejection[] = [];
@@ -741,6 +754,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       evidencePromotionInputCount = thesisResult.evidencePromotionInputCount;
       promotedEvidenceCount = thesisResult.promotedEvidenceCount;
       evidenceGroups = thesisResult.evidenceGroups;
+      editorialDeliberation = thesisResult.editorialDeliberation;
       leadSignalSelectionReason = thesisResult.leadSignalSelectionReason;
       runnerUpEvidenceGroups = thesisResult.runnerUpEvidenceGroups;
       evidencePromotionRejections = thesisResult.evidencePromotionRejections;
@@ -789,6 +803,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidencePromotionInputCount,
         promotedEvidenceCount,
         evidenceGroups,
+        editorialDeliberation,
         leadSignalSelectionReason,
         runnerUpEvidenceGroups,
         evidencePromotionRejections,
@@ -853,6 +868,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidencePromotionInputCount,
         promotedEvidenceCount,
         evidenceGroups,
+        editorialDeliberation,
         leadSignalSelectionReason,
         runnerUpEvidenceGroups,
         evidencePromotionRejections,
@@ -914,6 +930,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           evidencePromotionInputCount,
           promotedEvidenceCount,
           evidenceGroups,
+          editorialDeliberation,
           leadSignalSelectionReason,
           runnerUpEvidenceGroups,
           evidencePromotionRejections,
@@ -965,6 +982,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           evidencePromotionInputCount,
           promotedEvidenceCount,
           evidenceGroups,
+          editorialDeliberation,
           leadSignalSelectionReason,
           runnerUpEvidenceGroups,
           evidencePromotionRejections,
@@ -1015,6 +1033,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           evidencePromotionInputCount,
           promotedEvidenceCount,
           evidenceGroups,
+          editorialDeliberation,
           leadSignalSelectionReason,
           runnerUpEvidenceGroups,
           evidencePromotionRejections,
@@ -1063,6 +1082,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidencePromotionInputCount,
         promotedEvidenceCount,
         evidenceGroups,
+        editorialDeliberation,
         leadSignalSelectionReason,
         runnerUpEvidenceGroups,
         evidencePromotionRejections,
@@ -1116,6 +1136,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidencePromotionInputCount,
         promotedEvidenceCount,
         evidenceGroups,
+        editorialDeliberation,
         leadSignalSelectionReason,
         runnerUpEvidenceGroups,
         evidencePromotionRejections,
@@ -1166,6 +1187,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         evidencePromotionInputCount,
         promotedEvidenceCount,
         evidenceGroups,
+        editorialDeliberation,
         leadSignalSelectionReason,
         runnerUpEvidenceGroups,
         evidencePromotionRejections,
@@ -1215,6 +1237,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       evidencePromotionInputCount,
       promotedEvidenceCount,
       evidenceGroups,
+      editorialDeliberation,
       leadSignalSelectionReason,
       runnerUpEvidenceGroups,
       evidencePromotionRejections,

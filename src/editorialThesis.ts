@@ -71,6 +71,31 @@ export type EvidenceGroup = {
   groupQualityReason: string;
 };
 
+export type EditorialDeliberationStory = {
+  story: string;
+  themeAnchor: string;
+  clusterIndexes: number[];
+  clusterClaims: string[];
+  evidenceCount: number;
+  qualityAdjustedScore: number;
+  reasoning: string;
+};
+
+export type EditorialDeliberationMerge = {
+  clusterIndexes: number[];
+  clusterClaims: string[];
+  mergedStory: string;
+  reason: string;
+};
+
+export type EditorialDeliberationDecision = {
+  detectedStories: EditorialDeliberationStory[];
+  mergedClusters: EditorialDeliberationMerge[];
+  dominantStory: EditorialDeliberationStory | null;
+  secondaryStories: EditorialDeliberationStory[];
+  reasoning: string[];
+};
+
 export type EvidencePromotionRejection = {
   title: string;
   url: string;
@@ -110,6 +135,7 @@ export type EditorialThesisResult = {
   evidencePromotionInputCount: number;
   promotedEvidenceCount: number;
   evidenceGroups: EvidenceGroup[];
+  editorialDeliberation: EditorialDeliberationDecision;
   leadSignalSelectionReason: string;
   runnerUpEvidenceGroups: EvidenceGroup[];
   evidencePromotionRejections: EvidencePromotionRejection[];
@@ -877,6 +903,215 @@ function evidenceGroupsFor(groups: EvidenceCandidate[][]): EvidenceGroup[] {
   return groups.map(evidenceGroupQuality).sort((a, b) => b.qualityAdjustedScore - a.qualityAdjustedScore);
 }
 
+function emptyEditorialDeliberation(): EditorialDeliberationDecision {
+  return {
+    detectedStories: [],
+    mergedClusters: [],
+    dominantStory: null,
+    secondaryStories: [],
+    reasoning: ["No thematic clusters reached Editorial Deliberation."]
+  };
+}
+
+function storyTextFor(group: EvidenceCandidate[]): string {
+  return group
+    .map((item) =>
+      [
+        item.groupKey,
+        item.decision.editorialTitle,
+        item.decision.topicGroup,
+        ...item.decision.designSystemTopics,
+        ...item.decision.workflowTopics,
+        ...item.decision.aiTopics,
+        item.evidence.contribution,
+        item.candidate.title,
+        item.candidate.cleanSummary,
+        item.candidate.directDesignSystemEvidence
+      ].join(" ")
+    )
+    .join(" ")
+    .toLowerCase();
+}
+
+function storyTerms(value: string): Set<string> {
+  const stopWords = new Set([
+    "this",
+    "that",
+    "with",
+    "from",
+    "into",
+    "where",
+    "when",
+    "they",
+    "their",
+    "system",
+    "systems",
+    "design",
+    "component",
+    "components"
+  ]);
+
+  return new Set(
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]+/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length > 3 && !stopWords.has(word))
+  );
+}
+
+function sharedStoryTermCount(left: string, right: string): number {
+  const leftTerms = storyTerms(left);
+  const rightTerms = storyTerms(right);
+  let shared = 0;
+  for (const term of leftTerms) {
+    if (rightTerms.has(term)) shared += 1;
+  }
+  return shared;
+}
+
+function executableKnowledgeStory(text: string): boolean {
+  return /\b(mcp|metadata|machine-readable|machine readable|docgen|manifest|documentation automation|design-to-code|design to code|code generation|component api|component generation)\b/i.test(
+    text
+  );
+}
+
+function storyThemeAnchorFor(groups: EvidenceCandidate[][]): string {
+  const text = groups.map(storyTextFor).join(" ");
+  const anchors: string[] = [];
+  const add = (label: string, pattern: RegExp) => {
+    if (pattern.test(text) && !anchors.includes(label)) anchors.push(label);
+  };
+
+  add("Storybook metadata", /\bstorybook\b|manifest|docgen|component metadata/i);
+  add("Design-to-code", /design-to-code|design to code|code generation|component generation|figma metadata/i);
+  add("Figma", /\bfigma\b|code connect|dev mode/i);
+  add("AI agents", /\bagents?\b|mcp|copilot|llm/i);
+  add("Documentation", /docs?|documentation|machine-readable|metadata/i);
+  add("Accessibility", /accessibility|a11y/i);
+  add("Governance", /governance|ownership|policy|standards/i);
+  add("Design tokens", /design tokens?|tokens?|variables?/i);
+
+  return anchors.slice(0, 3).join(" + ") || "Design System workflow";
+}
+
+function storyTitleFor(groups: EvidenceCandidate[][]): string {
+  const anchor = storyThemeAnchorFor(groups);
+  const text = groups.map(storyTextFor).join(" ");
+
+  if (/storybook|metadata|manifest|docgen|design-to-code|design to code|code generation|component generation/i.test(text)) {
+    return "Structured Design System knowledge is becoming executable";
+  }
+
+  if (/accessibility|qa|test|regression/i.test(text)) {
+    return "Design System review is moving toward automated verification";
+  }
+
+  if (/tokens?|variables?|semantic/i.test(text)) {
+    return "Token intent is becoming operational AI context";
+  }
+
+  return `${anchor} is becoming the week’s main DS × AI story`;
+}
+
+function storyFromGroups(groups: EvidenceCandidate[][], clusterIndexes: number[], reasoning: string): EditorialDeliberationStory {
+  const qualities = groups.map(evidenceGroupQuality);
+  return {
+    story: storyTitleFor(groups),
+    themeAnchor: storyThemeAnchorFor(groups),
+    clusterIndexes,
+    clusterClaims: qualities.map((quality) => quality.claim),
+    evidenceCount: qualities.reduce((total, quality) => total + quality.evidenceCount, 0),
+    qualityAdjustedScore: roundScore(qualities.reduce((total, quality) => total + quality.qualityAdjustedScore, 0)),
+    reasoning
+  };
+}
+
+function mergeReason(left: EvidenceCandidate[][], right: EvidenceCandidate[]): string {
+  const leftText = left.map(storyTextFor).join(" ");
+  const rightText = storyTextFor(right);
+  const sharedTerms = sharedStoryTermCount(leftText, rightText);
+  const bothExecutable = executableKnowledgeStory(leftText) && executableKnowledgeStory(rightText);
+  const leftAnchor = storyThemeAnchorFor(left);
+  const rightAnchor = storyThemeAnchorFor([right]);
+
+  if (bothExecutable && /storybook|metadata|documentation|figma|design-to-code|code generation|component generation/i.test(`${leftText} ${rightText}`)) {
+    return `Merged because ${leftAnchor} and ${rightAnchor} describe the same transition from documentation to executable Design System knowledge.`;
+  }
+
+  if (sharedTerms >= 4 && storyTitleFor(left) === storyTitleFor([right])) {
+    return `Merged because the clusters share ${sharedTerms} story terms and explain one DS × AI workflow shift more clearly together.`;
+  }
+
+  return "";
+}
+
+function deliberateEditorialStory(groups: EvidenceCandidate[][]): {
+  decision: EditorialDeliberationDecision;
+  dominantGroup: EvidenceCandidate[];
+} {
+  if (groups.length === 0) {
+    return {
+      decision: emptyEditorialDeliberation(),
+      dominantGroup: []
+    };
+  }
+
+  const detectedStories = groups.map((group, index) =>
+    storyFromGroups([group], [index], `Detected theme cluster "${evidenceGroupQuality(group).claim}".`)
+  );
+  const stories: Array<{ groups: EvidenceCandidate[][]; clusterIndexes: number[]; reasoning: string }> = [];
+  const mergedClusters: EditorialDeliberationMerge[] = [];
+
+  groups.forEach((group, index) => {
+    const target = stories.find((story) => mergeReason(story.groups, group));
+    if (!target) {
+      stories.push({
+        groups: [group],
+        clusterIndexes: [index],
+        reasoning: `Kept "${evidenceGroupQuality(group).claim}" as a distinct story candidate.`
+      });
+      return;
+    }
+
+    const reason = mergeReason(target.groups, group);
+    target.groups.push(group);
+    target.clusterIndexes.push(index);
+    target.reasoning = reason;
+    mergedClusters.push({
+      clusterIndexes: [...target.clusterIndexes],
+      clusterClaims: target.groups.map((item) => evidenceGroupQuality(item).claim),
+      mergedStory: storyTitleFor(target.groups),
+      reason
+    });
+  });
+
+  const storyCandidates = stories
+    .map((story) => storyFromGroups(story.groups, story.clusterIndexes, story.reasoning))
+    .sort((a, b) => b.qualityAdjustedScore - a.qualityAdjustedScore);
+  const dominantStory = storyCandidates[0];
+  const secondaryStories = storyCandidates.slice(1);
+  const dominantSource = stories.find((story) => story.clusterIndexes.join(",") === dominantStory.clusterIndexes.join(",")) ?? stories[0];
+
+  return {
+    decision: {
+      detectedStories,
+      mergedClusters,
+      dominantStory,
+      secondaryStories,
+      reasoning: [
+        `Detected ${detectedStories.length} thematic cluster${detectedStories.length === 1 ? "" : "s"} from Theme Discovery.`,
+        mergedClusters.length > 0
+          ? `Merged ${mergedClusters.length} related cluster pair${mergedClusters.length === 1 ? "" : "s"} before choosing a story.`
+          : "No clusters were merged because the available themes would become broader rather than more coherent.",
+        `Dominant story is "${dominantStory.story}" with quality-adjusted score ${dominantStory.qualityAdjustedScore}.`,
+        "Editorial Deliberation does not decide publication readiness; it only selects the story for Lead Signal formulation."
+      ]
+    },
+    dominantGroup: dominantSource.groups.flat()
+  };
+}
+
 function leadSignalSelectionReasonFor(evidenceGroups: EvidenceGroup[]): string {
   const winner = evidenceGroups[0];
   const runnerUp = evidenceGroups[1];
@@ -906,7 +1141,10 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
   const baseSelection = selectEditorialCandidates(candidatePool);
   const { promotedEvidence, evidencePromotionRejections } = promoteCandidatesToEvidence(candidatePool, baseSelection);
   const evidenceGroupsRaw = groupEvidenceCandidates(promotedEvidence);
-  const leadGroup = selectLeadEvidenceGroup(evidenceGroupsRaw);
+  const deliberation = deliberateEditorialStory(evidenceGroupsRaw);
+  const leadGroup = deliberation.dominantGroup.length
+    ? assignEvidenceRoles(deliberation.dominantGroup)
+    : selectLeadEvidenceGroup(evidenceGroupsRaw);
   const evidenceSet = leadGroup.map((item) => item.evidence);
   const leadEvidence = leadGroup.find((item) => item.evidence.role === "lead");
   const leadSignal = leadEvidence ? buildCandidateSignal(leadEvidence, evidenceSet) : null;
@@ -935,7 +1173,9 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
   }));
   const evidenceSetSummary = evidenceSet.length ? evidenceSetSummaryFor(evidenceSet) : emptyEvidenceSetSummary();
   const evidenceGroups = evidenceGroupsFor(evidenceGroupsRaw);
-  const leadSignalSelectionReason = leadSignalSelectionReasonFor(evidenceGroups);
+  const leadSignalSelectionReason = deliberation.decision.dominantStory
+    ? `Editorial Deliberation selected "${deliberation.decision.dominantStory.story}" before Lead Signal formulation. ${deliberation.decision.dominantStory.reasoning}`
+    : leadSignalSelectionReasonFor(evidenceGroups);
   const runnerUpEvidenceGroups = evidenceGroups.slice(1, 4);
   const degenerateEvidenceSet = evidenceSet.length === 1;
   const evidenceFormationReasons = [
@@ -968,6 +1208,7 @@ export function selectEditorialThesis(candidatePool: CandidateResource[]): Edito
     evidencePromotionInputCount: candidatePool.length,
     promotedEvidenceCount: promotedEvidence.length,
     evidenceGroups,
+    editorialDeliberation: deliberation.decision,
     leadSignalSelectionReason,
     runnerUpEvidenceGroups,
     evidencePromotionRejections,
