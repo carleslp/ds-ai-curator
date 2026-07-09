@@ -1,4 +1,5 @@
 import { cleanText, truncateText } from "./textUtils.js";
+import { machineryTermsIn } from "./editorialContracts.js";
 import type { CandidateSignal } from "./editorialThesis.js";
 import type { LearningRecommendation } from "./learningRecommendation.js";
 
@@ -272,6 +273,20 @@ function renderEditorsPick(editorsPick: Resource | null): string {
 	                    </table>`;
 }
 
+// Hard invariant: no reader-facing string may expose the selection machinery.
+// Template-generated copy used to bypass the section-contract validator; this
+// holds it to the same term list and fails loudly rather than shipping a leak.
+function assertNoReaderFacingMachinery(field: string, text: string): void {
+  const leaked = machineryTermsIn(text);
+  if (leaked.length > 0) {
+    throw new Error(
+      `Reader-facing machinery leak in Recommended Reading "${field}": ${leaked
+        .map((term) => `"${term}"`)
+        .join(", ")}. Reader copy must never expose selection mechanics. Offending text: ${text}`
+    );
+  }
+}
+
 function renderLearningRecommendation(recommendation: LearningRecommendation | null | undefined): string {
   if (!recommendation) return "";
 
@@ -280,6 +295,18 @@ function renderLearningRecommendation(recommendation: LearningRecommendation | n
   const minutes = `${recommendation.estimatedMinutes} min`;
   const whyRecommended = truncateText(recommendation.whyRecommended, 220);
   const readerGain = truncateText(recommendation.readerGain, 190);
+
+  assertNoReaderFacingMachinery("whyRecommended", whyRecommended);
+  assertNoReaderFacingMachinery("readerGain", readerGain);
+
+  // An honest gap beats a mechanical sentence: if the justification could not be
+  // written from the body it is omitted, not templated.
+  const whyBlock = whyRecommended
+    ? `
+                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:10px;">
+                            <strong style="color:#9a3412;">Why this is worth your time:</strong> ${escapeHtml(whyRecommended)}
+                          </div>`
+    : "";
 
   return `
                     ${renderSectionLabel("If you read one thing this week")}
@@ -301,9 +328,7 @@ function renderLearningRecommendation(recommendation: LearningRecommendation | n
                               ${escapeHtml(title)}
                             </a>
                           </div>
-                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:10px;">
-                            <strong style="color:#9a3412;">Why this is worth your time:</strong> ${escapeHtml(whyRecommended)}
-                          </div>
+                          ${whyBlock}
                           <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:12px;">
                             <strong style="color:#9a3412;">Reader takeaway:</strong> ${escapeHtml(readerGain)}
                           </div>

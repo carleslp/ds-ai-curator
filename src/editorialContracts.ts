@@ -84,7 +84,21 @@ const bannedTerms = [
   "independence marker",
   "relevance_score",
   "worth_your_time",
-  "actionability"
+  "actionability",
+  // Recommended Reading selection-mechanism vocabulary. These leaked into the
+  // reader-facing teaching justification because template copy bypassed this
+  // validator. Adding them here lets the same check cover template-generated
+  // copy (see machineryTermsIn), not just LLM output.
+  "thesis-term match",
+  "teaching cue",
+  "qualified set",
+  "editorial qualification",
+  "teaching fit",
+  "connected to the thesis",
+  "connected to the evidence set",
+  "primaryrole",
+  "qualified by",
+  "strongest teaching artifact"
 ];
 
 const stopWords = new Set([
@@ -191,6 +205,13 @@ function offendingTermsFor(value: string): string[] {
 
     return text.includes(normalized);
   });
+}
+
+// Public checker so the render path can hold template-generated reader copy to
+// the same machinery-vocabulary standard the section validator applies to LLM
+// output. Returns the banned terms present in `value` (empty when clean).
+export function machineryTermsIn(value: string): string[] {
+  return offendingTermsFor(value);
 }
 
 function resourceContractText(resource: Resource): string {

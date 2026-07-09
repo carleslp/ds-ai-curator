@@ -4,6 +4,7 @@ import type { EditorialQualification } from "./editorialQualification.js";
 import type { EditorialRoleAssignment, EditorialRoleDebug, EditorialRoleFit } from "./editorialRoles.js";
 import type { EditorialSelectionDecision } from "./editorialSelection.js";
 import type { CandidateSignal, SignalEvidence } from "./editorialThesis.js";
+import { machineryTermsIn } from "./editorialContracts.js";
 import { cleanText, decodeHtmlEntities, stripHtmlTags, truncateText } from "./textUtils.js";
 
 export type LearningRecommendation = {
@@ -86,6 +87,9 @@ type Stage1Survivor = {
 type Stage2Judged = {
   survivor: Stage1Survivor;
   bodyFetched: boolean;
+  // The extracted article body, retained so the reader-facing justification can
+  // be written from it rather than from the selection counts.
+  body: string;
   thesisTermMatches: number;
   connectedToThesis: boolean;
   teachingSignalCount: number;
@@ -609,6 +613,7 @@ async function stage2BodyJudgment(
     judged.push({
       survivor,
       bodyFetched: true,
+      body,
       thesisTermMatches,
       connectedToThesis,
       teachingSignalCount,
@@ -692,7 +697,8 @@ async function selectRoleBasedRecommendation(
       avoidPenalty: 0,
       reasons: [`the fetched article ${best.reason}`, best.survivor.teachingFit.reason]
     },
-    input
+    input,
+    writeTeachingJustification(best.body)
   );
   const whyItWon = `${best.survivor.candidate.title} became Recommended Reading because its fetched article body ${best.reason} — the strongest thesis-connected teaching artifact after Stage 2.`;
 
@@ -786,7 +792,29 @@ function relationshipToThesisFor(candidate: CandidateResource, input: LearningRe
   return truncateText(`${candidate.title} helps unpack the practical meaning of ${thesis.charAt(0).toLowerCase()}${thesis.slice(1)}`, 180);
 }
 
-function recommendationFor(scored: ScoredLearningCandidate, input: LearningRecommendationInput): LearningRecommendation {
+// Writes the reader-facing "why this is worth your time" line from the fetched
+// article body — what the piece argues, in the article's own words — not from
+// selection counts or genre labels. Sentences that carry any machinery
+// vocabulary are skipped so the reader never sees the workings; if none of the
+// body's sentences qualify the justification is omitted rather than templated.
+function writeTeachingJustification(body: string): string {
+  const sentences = cleanText(body)
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => {
+      const wordCount = sentence.split(/\s+/).filter(Boolean).length;
+      return wordCount >= 8 && sentence.length <= 240 && machineryTermsIn(sentence).length === 0;
+    });
+
+  if (sentences.length === 0) return "";
+  return truncateText(sentences.slice(0, 2).join(" "), 220);
+}
+
+function recommendationFor(
+  scored: ScoredLearningCandidate,
+  input: LearningRecommendationInput,
+  whyWorthYourTime: string
+): LearningRecommendation {
   const format = formatFor(scored.candidate);
   return {
     title: scored.candidate.title,
@@ -796,13 +824,10 @@ function recommendationFor(scored: ScoredLearningCandidate, input: LearningRecom
     format,
     estimatedMinutes: estimateMinutes(scored.candidate, format),
     readerGain: truncateText(
-      `A clearer mental model for how this week's shift changes Design System practice, not just whether the evidence is true.`,
+      `A sharper mental model for how this week's shift changes Design System practice, not just whether the claim holds.`,
       170
     ),
-    whyRecommended: truncateText(
-      `It is the strongest teaching artifact in the qualified set: ${scored.reasons.slice(0, 2).join("; ")}.`,
-      190
-    ),
+    whyRecommended: whyWorthYourTime,
     confidence: Math.max(0.5, Math.min(0.95, Math.round((scored.score / 100) * 100) / 100)),
     relationshipToThesis: relationshipToThesisFor(scored.candidate, input)
   };
@@ -854,7 +879,10 @@ export async function selectLearningRecommendation(
     });
   }
 
-  const recommendation = recommendationFor(best, input);
+  // Legacy path (no editorial roles, so no Stage 2 body fetch). Without a body
+  // there is nothing to write the justification from, so it is honestly omitted
+  // rather than templated.
+  const recommendation = recommendationFor(best, input, "");
 
   return baseLearningDebug({
     recommendation,
