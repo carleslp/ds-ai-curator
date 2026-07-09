@@ -53,6 +53,21 @@ function withoutTerminalPunctuation(value: string): string {
   return cleanText(value).replace(/[.!?]+$/g, "");
 }
 
+// Removes a leading occurrence of `clause` from `value` (case-insensitive,
+// ignoring trailing punctuation on the clause). Used when a composite field
+// such as editorialPosition — built as `${newReality} ${readerTakeaway}` — is
+// appended after the same newReality has already been emitted, which otherwise
+// prints the clause verbatim twice and inflates the sentence count.
+function withoutLeadingClause(value: string, clause: string): string {
+  const text = cleanText(value);
+  const lead = withoutTerminalPunctuation(clause).trim();
+  if (!lead) return text;
+  if (text.toLowerCase().startsWith(lead.toLowerCase())) {
+    return text.slice(lead.length).replace(/^[\s.;:,–—-]+/, "").trim();
+  }
+  return text;
+}
+
 function publicationSafeText(value: string): string {
   return cleanText(value)
     .replace(/\bselected\b/gi, "chosen")
@@ -416,11 +431,15 @@ function buildSignal(
   if (contractMode && brief?.thesis) {
     const oldAssumption = withoutTerminalPunctuation(brief.oldAssumption);
     const newReality = withoutTerminalPunctuation(brief.newReality);
+    // editorialPosition is `${newReality} ${readerTakeaway}`; strip the leading
+    // newReality so it is not printed twice (once here, once as the position).
+    const position = withoutTerminalPunctuation(withoutLeadingClause(brief.editorialPosition, brief.newReality));
+    const positionSentence = position ? ` ${position.charAt(0).toUpperCase()}${position.slice(1)}.` : "";
     return polishSignal(
       publicationSafeText(
         `The shift is not that ${oldAssumption.charAt(0).toLowerCase()}${oldAssumption.slice(1)}; it is that ${newReality
           .charAt(0)
-          .toLowerCase()}${newReality.slice(1)}. ${withoutTerminalPunctuation(brief.editorialPosition)}.`
+          .toLowerCase()}${newReality.slice(1)}.${positionSentence}`
       )
     );
   }
@@ -428,12 +447,13 @@ function buildSignal(
   if (contractMode && narrative?.narrativeThesis) {
     const oldAssumption = withoutTerminalPunctuation(narrative.oldAssumption);
     const newReality = withoutTerminalPunctuation(narrative.newReality);
-    const readerTakeaway = withoutTerminalPunctuation(narrative.readerTakeaway);
+    const readerTakeaway = withoutTerminalPunctuation(withoutLeadingClause(narrative.readerTakeaway, narrative.newReality));
+    const takeawaySentence = readerTakeaway ? ` ${readerTakeaway.charAt(0).toUpperCase()}${readerTakeaway.slice(1)}.` : "";
     return polishSignal(
       publicationSafeText(
         `The shift is not that ${oldAssumption.charAt(0).toLowerCase()}${oldAssumption.slice(1)}; it is that ${newReality
           .charAt(0)
-          .toLowerCase()}${newReality.slice(1)}. ${readerTakeaway}.`
+          .toLowerCase()}${newReality.slice(1)}.${takeawaySentence}`
       )
     );
   }
