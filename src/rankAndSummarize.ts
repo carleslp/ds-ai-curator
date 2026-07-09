@@ -58,7 +58,7 @@ const RankedDigestSchema = z.object({
 type RankedDigest = z.infer<typeof RankedDigestSchema>;
 
 const openAIModel = process.env.OPENAI_MODEL ?? "gpt-5.5";
-const geminiModel = "gemini-2.0-flash";
+const geminiModel = "gemini-2.5-flash";
 
 const editorialVoiceGuidance = `
 Editorial voice:
