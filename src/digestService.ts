@@ -63,7 +63,14 @@ import {
   type LearningRecommendationDebug
 } from "./learningRecommendation.js";
 import { truncateText } from "./textUtils.js";
-import { createLedgerPreview, type ThesisLedgerPreview } from "./thesisLedger.js";
+import {
+  createLedgerPreview,
+  readThesisLedger,
+  appendThesisLedgerEntry,
+  resolveThesisContinuity,
+  type ThesisLedgerPreview,
+  type ThesisLedgerEntry
+} from "./thesisLedger.js";
 import type {
   CandidateSignal,
   EvidenceReasoningDebug,
@@ -790,59 +797,81 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
   providerFailures: ProviderFailure[];
   synthesisMode: SynthesisMode;
 }> {
-  const attempts: ProviderAttempt[] = [];
-  const failures: ProviderFailure[] = [];
+  const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
+  const hasGemini = Boolean(process.env.GEMINI_API_KEY);
+  const providerAttempts: ProviderAttempt[] = [];
+  const providerFailures: ProviderFailure[] = [];
 
-  if (process.env.OPENAI_API_KEY) {
-    console.log("LLM ranking provider: OpenAI.");
+  if (!hasOpenAI && !hasGemini) {
+    const error = new Error("No LLM provider key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.") as Error & {
+      providerAttempts?: ProviderAttempt[];
+      providerFailures?: ProviderFailure[];
+    };
+    error.providerAttempts = providerAttempts;
+    error.providerFailures = providerFailures;
+    throw error;
+  }
+
+  // Try OpenAI first, but a provider-level failure (quota/429, outage, timeout)
+  // must fall through to Gemini rather than collapsing the whole run to the
+  // deterministic template fallback. Only when every configured provider fails
+  // do we let the error propagate to the candidateFallback catch.
+  let lastError: unknown;
+
+  if (hasOpenAI) {
     try {
+      console.log("LLM ranking provider: OpenAI.");
       const digest = await rankAndSummarizeWithOpenAI(filteredCandidates);
-      attempts.push({ provider: "openAI", status: "success" });
+      providerAttempts.push({ provider: "openAI", status: "success" });
       return {
         digest,
         provider: "openAI",
-        providerAttempts: attempts,
-        providerFailures: failures,
-        synthesisMode: failures.length > 0 ? "providerFallback" : "live"
+        providerAttempts,
+        providerFailures,
+        synthesisMode: providerFailures.length > 0 ? "providerFallback" : "live"
       };
     } catch (error) {
+      lastError = error;
       const message = getErrorMessage(error);
-      console.error(`LLM provider failed: OpenAI - ${message}`);
-      attempts.push({ provider: "openAI", status: "failed", error: message });
-      failures.push({ provider: "openAI", error: message });
+      console.error(`OpenAI ranking failed: ${message}`);
+      providerAttempts.push({ provider: "openAI", status: "failed", error: message });
+      providerFailures.push({ provider: "openAI", error: message });
+      if (hasGemini) {
+        console.log("Falling back to next live provider: Gemini.");
+      }
     }
   }
 
-  if (process.env.GEMINI_API_KEY) {
-    console.log("LLM ranking provider: Gemini.");
+  if (hasGemini) {
     try {
+      console.log("LLM ranking provider: Gemini.");
       const digest = await rankAndSummarizeWithGemini(filteredCandidates);
-      attempts.push({ provider: "gemini", status: "success" });
+      providerAttempts.push({ provider: "gemini", status: "success" });
       return {
         digest,
         provider: "gemini",
-        providerAttempts: attempts,
-        providerFailures: failures,
-        synthesisMode: failures.length > 0 ? "providerFallback" : "live"
+        providerAttempts,
+        providerFailures,
+        synthesisMode: providerFailures.length > 0 ? "providerFallback" : "live"
       };
     } catch (error) {
+      lastError = error;
       const message = getErrorMessage(error);
-      console.error(`LLM provider failed: Gemini - ${message}`);
-      attempts.push({ provider: "gemini", status: "failed", error: message });
-      failures.push({ provider: "gemini", error: message });
+      console.error(`Gemini ranking failed: ${message}`);
+      providerAttempts.push({ provider: "gemini", status: "failed", error: message });
+      providerFailures.push({ provider: "gemini", error: message });
     }
   }
 
-  const failureSummary = failures.length
-    ? failures.map((failure) => `${failure.provider}: ${failure.error}`).join(" | ")
-    : "No LLM provider key configured. Set OPENAI_API_KEY or GEMINI_API_KEY.";
-  const error = new Error(failureSummary) as Error & {
+  const providerError = new Error(
+    `All configured LLM providers failed. Last error: ${getErrorMessage(lastError)}`
+  ) as Error & {
     providerAttempts?: ProviderAttempt[];
     providerFailures?: ProviderFailure[];
   };
-  error.providerAttempts = attempts;
-  error.providerFailures = failures;
-  throw error;
+  providerError.providerAttempts = providerAttempts;
+  providerError.providerFailures = providerFailures;
+  throw providerError;
 }
 
 export async function getDailyDigest(): Promise<DailyDigestResult> {
@@ -1101,6 +1130,57 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       rememberDigest(editorialDigest);
       console.log("Step 8: Digest cached.");
 
+      // Step 8b: Persist this issue's thesis to the ledger (P3). This is the
+      // write that was specified but never wired — the reason the ledger stayed
+      // empty and issues never developed across weeks. Best-effort: a ledger
+      // failure must never break the published digest. Before appending, we run
+      // two-lens continuity retrieval (thesis identity + evidence overlap) so the
+      // entry records how it connects to prior theses and whether it merely
+      // repeats one. NOTE: on serverless (Vercel) the ledger store is in-memory
+      // and resets on cold start — see THESIS_LEDGER_PATH / durable-store note.
+      let liveLedgerPreview = thesisLedgerPreview;
+      if (thesisLedgerEnabled && leadSignal) {
+        try {
+          const priorEntries = await readThesisLedger();
+          const evidenceRefs = leadSignal.evidence
+            .map((item) => item.resourceRef.url)
+            .filter((url): url is string => typeof url === "string" && url.length > 0);
+          const themeAnchor = editorialDeliberation.dominantStory?.themeAnchor ?? null;
+          const continuity = resolveThesisContinuity(
+            { themeAnchor, claimAsPublished: leadSignal.claim, evidenceRefs },
+            priorEntries
+          );
+          const ledgerEntry: ThesisLedgerEntry = {
+            id: `thesis-${new Date().toISOString()}-${Math.random().toString(36).slice(2, 8)}`,
+            themeAnchor,
+            claimAsPublished: leadSignal.claim,
+            confidenceAtPublication: Number.isFinite(leadSignal.confidence) ? leadSignal.confidence : null,
+            confidenceDrivers: leadSignal.whyNow ? [leadSignal.whyNow] : [],
+            convictionAtPublication: Number.isFinite(leadSignal.editorialConviction) ? leadSignal.editorialConviction : null,
+            convictionDrivers: [],
+            catalyst: null,
+            counterOpposingClaim: null,
+            opportunityMove: leadSignal.opportunity || null,
+            outcome: "open",
+            publishedAt: new Date().toISOString(),
+            evidenceRefs,
+            canonicalKey: continuity.canonicalKey,
+            continuesThesisId: continuity.continuesThesisId,
+            relatedThesisIds: continuity.relatedThesisIds,
+            alreadyCitedEvidenceRefs: continuity.alreadyCitedEvidenceRefs,
+            isLikelyRepeat: continuity.isLikelyRepeat
+          };
+          await appendThesisLedgerEntry(ledgerEntry);
+          liveLedgerPreview = await createLedgerPreview();
+          console.log(`Step 8b: Thesis Ledger appended (${priorEntries.length} -> ${liveLedgerPreview.totalEntries}). ${continuity.reason}`);
+          if (continuity.isLikelyRepeat) {
+            console.warn("Thesis Ledger: this issue repeats a prior thesis on overlapping evidence — continuity/dedup should intervene before publishing.");
+          }
+        } catch (ledgerError) {
+          console.error(`Thesis Ledger append skipped (non-fatal): ${getErrorMessage(ledgerError)}`);
+        }
+      }
+
       return {
         digest: editorialDigest,
         mode: ranked.provider === "openAI" ? "liveOpenAI" : "liveGemini",
@@ -1109,8 +1189,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         ...synthesisDebug(false),
         thesisEngineEnabled,
         thesisLedgerEnabled,
-        thesisLedgerEntryCount,
-        thesisLedgerPreview,
+        thesisLedgerEntryCount: liveLedgerPreview.totalEntries,
+        thesisLedgerPreview: liveLedgerPreview,
         leadSignal,
         candidateSignals,
         rejectedSignals,

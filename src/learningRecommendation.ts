@@ -395,6 +395,36 @@ function selectRoleBasedRecommendation(input: LearningRecommendationInput): Lear
     }
 
     const connectedToThesis = connectedUrls.has(normalizeUrl(candidate.url)) || countMatchingTerms(textForCandidate(candidate), relationTerms(input)) >= 2;
+
+    // Thesis connection is a GATE, not a bonus. The Recommended Reading slot
+    // explains THIS week's thesis; an artifact that isn't about the thesis
+    // cannot teach it, no matter how strong its generic teaching signals are.
+    // Unconnected candidates are rejected outright rather than competing on
+    // score, which is what previously let an off-thesis essay tie on the
+    // connection bonus and win the slot. If this empties the pool, the slot
+    // is omitted (handled below) rather than filled with something irrelevant.
+    if (!connectedToThesis) {
+      rejected.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        reason: "Skipped because it is not connected to this week's thesis; Recommended Reading must teach the thesis, so an unrelated artifact is omitted rather than recommended."
+      });
+      considered.push({
+        title: assignment.title,
+        url: assignment.url,
+        source: assignment.source,
+        primaryRole: assignment.primaryRole,
+        teachingFit: teachingFit.fit,
+        qualified,
+        connectedToThesis,
+        score: 0,
+        reason: "Excluded by thesis-connection gate: strong teaching signals but not about this week's thesis."
+      });
+      continue;
+    }
+
     const roleScored = scoreRoleTeachingCandidate(assignment, candidate, teachingFit, qualified, connectedToThesis);
     scored.push(roleScored);
     considered.push({
