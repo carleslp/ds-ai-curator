@@ -13,21 +13,22 @@ import { validateSectionContracts } from "./editorialContracts.js";
 import { cleanText, truncateText } from "./textUtils.js";
 
 export type EditorialWritingLayerSectionDebug = {
-  initialMachineryLeakPass: boolean;
-  finalMachineryLeakPass: boolean;
-  initialOwnershipPresencePass: boolean;
-  finalOwnershipPresencePass: boolean;
-  // The full text the validator saw and the labeled verdict for each check, so
-  // a reviewer can see exactly which check rejected the model's prose.
-  originalText: string;
+  // What the LLM actually produced for this section (from draftFromDigest()).
+  llmText: string;
+  // What actually shipped — the LLM text, or a deterministic template if the
+  // repair loop replaced it.
   finalText: string;
-  initialOffendingTerms: string[];
+  // Validator verdict on llmText: this is *why* the model's prose was kept or
+  // rejected. offendingTerms lists the machinery vocabulary that tripped the
+  // machinery-leak check.
+  machineryLeakPass: boolean;
+  ownershipPresencePass: boolean;
+  offendingTerms: string[];
+  // The individual ownership sub-checks behind ownershipPresencePass, so the
+  // exact failing check is visible per section.
   ownershipChecks: Array<{ label: string; pass: boolean }>;
+  // True when the repair loop discarded llmText and shipped a template instead.
   fallbackApplied: boolean;
-  // "deterministicTemplate" when the reader-facing text is boilerplate rather
-  // than model prose; null when the model's own text survived.
-  fallbackKind: "deterministicTemplate" | null;
-  finalTextIsDeterministic: boolean;
 };
 
 export type EditorialWritingLayerDebug = {
@@ -716,22 +717,17 @@ export function applyEditorialWritingLayer(
   const sectionDebug = Object.fromEntries(
     sectionNames.map((sectionName) => {
       const initial = initialContracts.sectionContracts[sectionName as keyof typeof initialContracts.sectionContracts];
-      const final = finalContracts.sectionContracts[sectionName as keyof typeof finalContracts.sectionContracts];
       const fallbackApplied = rewrittenSections.includes(sectionName);
       return [
         sectionName,
         {
-          initialMachineryLeakPass: initial.machineryLeakPass,
-          finalMachineryLeakPass: final.machineryLeakPass,
-          initialOwnershipPresencePass: initial.ownershipPresencePass,
-          finalOwnershipPresencePass: final.ownershipPresencePass,
-          originalText: sectionText(originalSections, sectionName),
+          llmText: sectionText(originalSections, sectionName),
           finalText: sectionText(finalSections, sectionName),
-          initialOffendingTerms: initial.offendingTerms,
+          machineryLeakPass: initial.machineryLeakPass,
+          ownershipPresencePass: initial.ownershipPresencePass,
+          offendingTerms: initial.offendingTerms,
           ownershipChecks: initial.ownershipChecks,
-          fallbackApplied,
-          fallbackKind: fallbackApplied ? ("deterministicTemplate" as const) : null,
-          finalTextIsDeterministic: fallbackApplied
+          fallbackApplied
         }
       ];
     })
