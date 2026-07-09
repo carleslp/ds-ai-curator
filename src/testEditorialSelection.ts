@@ -256,16 +256,31 @@ const roleLearningBrief = {
   newReality: "Component documentation is becoming structured enough for agents to act on.",
   whyNow: "Storybook metadata and practitioner writing are converging around machine-readable component context."
 };
-const roleLearningRecommendation = selectLearningRecommendation({
-  editorialBrief: roleLearningBrief,
-  thesis: null,
-  evidence: [],
-  qualifiedResources: roleSelection.qualifiedCandidates,
-  editorialQualification: roleQualification.editorialQualification,
-  allResources: roleFixtureCandidates,
-  selectionDecisions: roleSelection.decisions,
-  editorialRoles
-});
+// Stage 2 fetches article bodies; inject fixture bodies so the test stays
+// offline and deterministic. The essay's body is rich in this week's thesis
+// vocabulary and teaching cues, so it survives Stage 2 body analysis.
+const roleFixtureBodies: Record<string, string> = {
+  "https://medium.com/design-systems/who-are-we-writing-for-now":
+    "Design System documentation is shifting from static reference material into AI-readable operational knowledge. " +
+    "For example, when we write component documentation now, we are writing for designers, engineers, and AI agents at the same time. " +
+    "Here's how that changes the work in practice: Storybook metadata and component examples become the operational knowledge an agent reads before it acts. " +
+    "The takeaway is that documentation is becoming infrastructure. A short walkthrough: start with one component, capture the intent, and let both people and agents verify it the same way. " +
+    "This essay explains the pattern and why AI-readable documentation matters for mature Design System teams.".repeat(3)
+};
+const roleFetcher = async (url: string): Promise<string | null> => roleFixtureBodies[url] ?? null;
+const roleLearningRecommendation = await selectLearningRecommendation(
+  {
+    editorialBrief: roleLearningBrief,
+    thesis: null,
+    evidence: [],
+    qualifiedResources: roleSelection.qualifiedCandidates,
+    editorialQualification: roleQualification.editorialQualification,
+    allResources: roleFixtureCandidates,
+    selectionDecisions: roleSelection.decisions,
+    editorialRoles
+  },
+  { fetchArticleBody: roleFetcher }
+);
 
 assert.equal(
   roleLearningRecommendation.recommendedReading?.title,
@@ -782,7 +797,7 @@ const learningSelectionResult = selectEditorialCandidates([
     rankingExplanation: "Practical source. Useful but less explanatory than the deep essay."
   })
 ]);
-const learningRecommendation = selectLearningRecommendation({
+const learningRecommendation = await selectLearningRecommendation({
   editorialBrief,
   thesis: evidenceReasoningResult.leadSignal,
   evidence: evidenceReasoningResult.leadSignal?.evidence ?? [],
@@ -815,7 +830,7 @@ const nullLearningSelection = selectEditorialCandidates([
     rankingExplanation: "Official source. Reference documentation is useful evidence but weak teaching."
   })
 ]);
-const nullLearningRecommendation = selectLearningRecommendation({
+const nullLearningRecommendation = await selectLearningRecommendation({
   editorialBrief,
   thesis: evidenceReasoningResult.leadSignal,
   evidence: evidenceReasoningResult.leadSignal?.evidence ?? [],

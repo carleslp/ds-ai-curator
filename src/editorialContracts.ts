@@ -10,10 +10,17 @@ type SectionName =
   | "watchlist"
   | "supportingResources";
 
+export type OwnershipCheck = {
+  label: string;
+  pass: boolean;
+};
+
 export type SectionContractResult = {
   machineryLeakPass: boolean;
   offendingTerms: string[];
   ownershipPresencePass: boolean;
+  ownershipChecks: OwnershipCheck[];
+  evaluatedText: string;
   notes: string[];
 };
 
@@ -109,8 +116,45 @@ const stopWords = new Set([
   "week"
 ]);
 
+// Abbreviations whose trailing period is not a sentence boundary. Kept short
+// and lower-cased; matching is case-insensitive.
+const nonTerminalAbbreviations = [
+  "e.g",
+  "i.e",
+  "vs",
+  "etc",
+  "approx",
+  "no",
+  "fig",
+  "inc",
+  "ltd",
+  "corp",
+  "dr",
+  "mr",
+  "mrs",
+  "ms",
+  "prof",
+  "ph.d",
+  "u.s",
+  "u.k",
+  "a.i"
+];
+
+// Counts sentences without treating decimal numbers or common abbreviations as
+// terminators. The naive `split(/[.!?]+/)` counted "Cursor 2.5" and "e.g." as
+// extra sentences, which made every Signal that named a versioned tool/model
+// (i.e. nearly every real week) exceed the two-sentence ownership check and get
+// silently replaced by the deterministic template. We mask those interior dots
+// before splitting so the count reflects actual sentences.
 function sentenceCount(value: string): number {
-  return value.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean).length;
+  // Drop the interior dots in decimals and abbreviations so they cannot
+  // terminate a sentence, then count what remains.
+  let masked = value.replace(/(\d)\.(?=\d)/g, "$1");
+  for (const abbreviation of nonTerminalAbbreviations) {
+    const pattern = new RegExp(`\\b${abbreviation.replace(/\./g, "\\.")}\\.`, "gi");
+    masked = masked.replace(pattern, (match) => match.replace(/\./g, ""));
+  }
+  return masked.split(/[.!?]+/).map((part) => part.trim()).filter(Boolean).length;
 }
 
 function uniqueTerms(value: string): Set<string> {
@@ -163,12 +207,14 @@ function resourceContractText(resource: Resource): string {
     .join(" ");
 }
 
-function sectionResult(text: string, ownershipPresencePass: boolean, notes: string[]): SectionContractResult {
+function sectionResult(text: string, ownershipChecks: OwnershipCheck[], notes: string[]): SectionContractResult {
   const offendingTerms = offendingTermsFor(text);
   return {
     machineryLeakPass: offendingTerms.length === 0,
     offendingTerms,
-    ownershipPresencePass,
+    ownershipPresencePass: ownershipChecks.every((check) => check.pass),
+    ownershipChecks,
+    evaluatedText: text,
     notes
   };
 }
@@ -205,40 +251,53 @@ export function validateSectionContracts(digest: Digest, leadSignal: CandidateSi
   const supportingResourceText = digest.resources.map(resourceContractText).join(" ");
 
   const sectionContracts: Record<SectionName, SectionContractResult> = {
-    theSignal: sectionResult(digest.theSignal, sentenceCount(digest.theSignal) <= 2 && !/https?:\/\//i.test(digest.theSignal), [
-      "Answers what is newly true this week.",
-      "Must stay abstract and avoid named artifacts."
-    ]),
+    theSignal: sectionResult(
+      digest.theSignal,
+      [
+        { label: "At most two sentences (a thesis, not an article-by-article recap)", pass: sentenceCount(digest.theSignal) <= 2 },
+        { label: "No raw URL in the prose", pass: !/https?:\/\//i.test(digest.theSignal) }
+      ],
+      ["Answers what is newly true this week.", "Must stay abstract and avoid named artifacts."]
+    ),
     editorsPick: sectionResult(
       editorsPickText(digest.editorsPick),
-      Boolean(digest.editorsPick?.title && digest.editorsPick?.source),
+      [{ label: "Names a concrete artifact (title and source)", pass: Boolean(digest.editorsPick?.title && digest.editorsPick?.source) }],
       ["Explains the concrete artifact without describing selection mechanics."]
     ),
     supportingSignals: sectionResult(
       digest.supportingSignals.join(" "),
-      digest.supportingSignals.length >= 1 && digest.supportingSignals.length <= 3,
+      [{ label: "Between one and three observations", pass: digest.supportingSignals.length >= 1 && digest.supportingSignals.length <= 3 }],
       ["Shows what strengthens or complicates the claim."]
     ),
     suggestedExperiment: sectionResult(
       digest.suggestedExperiment,
-      /\bbecause\b/i.test(digest.suggestedExperiment) && /\bstart with\b/i.test(digest.suggestedExperiment),
+      [
+        { label: "States a reason ('because')", pass: /\bbecause\b/i.test(digest.suggestedExperiment) },
+        { label: "Gives one concrete starting action ('start with')", pass: /\bstart with\b/i.test(digest.suggestedExperiment) }
+      ],
       ["Owns localized stakes and exactly one practical action."]
     ),
     questionsForOurTeam: sectionResult(
       questionsText(digest.teamDiscussionQuestions),
-      digest.teamDiscussionQuestions.length >= 2 &&
-        digest.teamDiscussionQuestions.length <= 3 &&
-        digest.teamDiscussionQuestions.every((question) => question.trim().endsWith("?")),
+      [
+        { label: "Two or three questions", pass: digest.teamDiscussionQuestions.length >= 2 && digest.teamDiscussionQuestions.length <= 3 },
+        { label: "Every item ends with a question mark", pass: digest.teamDiscussionQuestions.every((question) => question.trim().endsWith("?")) }
+      ],
       ["Keeps unresolved team debate separate from action."]
     ),
     watchlist: sectionResult(
       watchlistText(digest.nextWeekWatchlist),
-      digest.nextWeekWatchlist.length >= 2 &&
-        digest.nextWeekWatchlist.length <= 3 &&
-        digest.nextWeekWatchlist.every(isFutureLooking),
+      [
+        { label: "Two or three items", pass: digest.nextWeekWatchlist.length >= 2 && digest.nextWeekWatchlist.length <= 3 },
+        { label: "Every item is future-looking", pass: digest.nextWeekWatchlist.every(isFutureLooking) }
+      ],
       ["Names future triggers that could confirm, complicate, or break the thesis."]
     ),
-    supportingResources: sectionResult(supportingResourceText, true, ["Checks generated card copy for machinery vocabulary."])
+    supportingResources: sectionResult(
+      supportingResourceText,
+      [{ label: "Card copy present for machinery scan", pass: true }],
+      ["Checks generated card copy for machinery vocabulary."]
+    )
   };
 
   const redundancyMatrix: RedundancyMatrixEntry[] = [
@@ -262,7 +321,8 @@ export function validateSectionContracts(digest: Digest, leadSignal: CandidateSi
       messages.push(`${sectionName} contains machinery vocabulary: ${result.offendingTerms.join(", ")}.`);
     }
     if (!result.ownershipPresencePass) {
-      messages.push(`${sectionName} does not satisfy ownership presence checks.`);
+      const failed = result.ownershipChecks.filter((check) => !check.pass).map((check) => check.label);
+      messages.push(`${sectionName} does not satisfy ownership presence checks: ${failed.join("; ")}.`);
     }
     return messages;
   });

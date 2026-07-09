@@ -4,7 +4,7 @@ import type { EditorialQualification } from "./editorialQualification.js";
 import type { EditorialRoleAssignment, EditorialRoleDebug, EditorialRoleFit } from "./editorialRoles.js";
 import type { EditorialSelectionDecision } from "./editorialSelection.js";
 import type { CandidateSignal, SignalEvidence } from "./editorialThesis.js";
-import { cleanText, truncateText } from "./textUtils.js";
+import { cleanText, decodeHtmlEntities, stripHtmlTags, truncateText } from "./textUtils.js";
 
 export type LearningRecommendation = {
   title: string;
@@ -59,6 +59,43 @@ export type TeachingCandidateRejectionDebug = {
   reason: string;
 };
 
+// Stage 2 fetches the full article body for the shortlisted Teaching candidates
+// and judges them on that body, not the feed snippet. The fetch is injected so
+// the selection logic stays deterministic and unit-testable with fixtures;
+// production supplies the real network fetcher (see defaultArticleBodyFetcher).
+// A resolved value of null means the body could not be fetched or extracted.
+export type ArticleBodyFetcher = (url: string) => Promise<string | null>;
+
+export type LearningRecommendationOptions = {
+  fetchArticleBody?: ArticleBodyFetcher;
+  maxTeachingFetches?: number;
+};
+
+// A Stage 1 survivor: it cleared every metadata-reliable eliminator and is
+// eligible for the expensive Stage 2 body fetch. Note there is no teaching
+// score here on purpose — a title cannot support one, so Stage 1 only decides
+// eligibility, never ranking.
+type Stage1Survivor = {
+  assignment: EditorialRoleAssignment;
+  candidate: CandidateResource;
+  teachingFit: EditorialRoleFit;
+};
+
+// A Stage 2 result: thesis-connection and teaching comparison computed against
+// the fetched body.
+type Stage2Judged = {
+  survivor: Stage1Survivor;
+  bodyFetched: boolean;
+  thesisTermMatches: number;
+  connectedToThesis: boolean;
+  teachingSignalCount: number;
+  score: number;
+  reason: string;
+};
+
+const defaultMaxTeachingFetches = 8;
+const articleFetchTimeoutMs = 6000;
+
 type LearningRecommendationInput = {
   editorialBrief: EditorialBrief;
   thesis: CandidateSignal | null;
@@ -77,16 +114,6 @@ type ScoredLearningCandidate = {
   teachingScore: number;
   avoidPenalty: number;
   reasons: string[];
-};
-
-type RoleScoredTeachingCandidate = {
-  assignment: EditorialRoleAssignment;
-  candidate: CandidateResource;
-  teachingFit: EditorialRoleFit;
-  qualified: boolean;
-  connectedToThesis: boolean;
-  score: number;
-  reason: string;
 };
 
 const preferredCategories = new Set<CandidateResource["sourceCategory"]>(["Practical", "Talk", "Community"]);
@@ -149,6 +176,198 @@ const stopWords = new Set([
   "system",
   "systems"
 ]);
+
+// Beginner markers — metadata-reliable: a title/URL that advertises 101,
+// getting-started, or crash-course material is education for newcomers, not a
+// senior-team teaching artifact. Mirrors the beginner penalty in editorialEngine.
+const beginnerMarkers = [
+  "101",
+  "beginner",
+  "beginner's",
+  "beginners",
+  "for beginners",
+  "getting started",
+  "intro to",
+  "introduction to",
+  "crash course",
+  "from scratch",
+  "step-by-step guide for new"
+];
+
+// Teaching cues we look for in the fetched body (Stage 2). Unlike title cues,
+// these are read against the full article text, where they actually mean the
+// piece explains something rather than merely names a topic.
+const teachingBodySignals = [
+  "for example",
+  "for instance",
+  "step ",
+  "first,",
+  "next,",
+  "here's how",
+  "here is how",
+  "how to",
+  "walkthrough",
+  "walk through",
+  "let's",
+  "in practice",
+  "the key idea",
+  "the takeaway",
+  "consider",
+  "imagine",
+  "case study",
+  "lesson",
+  "pattern",
+  "principle",
+  "rule of thumb"
+];
+
+function hostAndPath(url: string): { host: string; path: string } {
+  try {
+    const parsed = new URL(url);
+    return { host: parsed.hostname.toLowerCase(), path: parsed.pathname.toLowerCase() };
+  } catch {
+    const lower = url.toLowerCase();
+    return { host: lower, path: lower };
+  }
+}
+
+// Stage 1 metadata-reliable genre classifier. Returns a human-readable genre
+// label when the URL/format alone proves the artifact can never be Teaching,
+// otherwise null. Deliberately conservative: it keys off URL structure and
+// unambiguous format words, never off teaching "quality", which a title cannot
+// carry.
+function nonTeachingGenre(candidate: CandidateResource): string | null {
+  const { host, path } = hostAndPath(candidate.url);
+  const text = textForCandidate(candidate);
+
+  // Changelogs / release notes.
+  if (
+    /\/(releases?|changelog|release-notes|tags?)(\/|$)/.test(path) ||
+    path.endsWith("releases.atom") ||
+    hasAny(text, ["release notes", "changelog", "releases.atom", "github.com/releases"])
+  ) {
+    return "changelog/release notes (Evidence, not Teaching)";
+  }
+
+  // Documentation / reference / help-center / search-result pages.
+  if (
+    /\/(docs?|documentation|reference|api|manual|handbook)(\/|$)/.test(path) ||
+    /\/(search|hc)(\/|$|\?)/.test(path) ||
+    host.startsWith("help.") ||
+    hasAny(text, ["api reference", "reference documentation", "documentation index", "docs index", "help center", "help center search"])
+  ) {
+    return "documentation/reference page (Reference, not Teaching)";
+  }
+
+  // Event / ticket / RSVP pages.
+  if (
+    ["eventbrite.com", "lu.ma", "meetup.com", "ti.to", "hopin.com"].some((eventHost) => host === eventHost || host.endsWith(`.${eventHost}`)) ||
+    /\/(events?|tickets?|register|rsvp)(\/|$)/.test(path) ||
+    hasAny(text, ["buy tickets", "register now", "rsvp", "get your ticket"])
+  ) {
+    return "event/ticket page (not Teaching)";
+  }
+
+  // GitHub topic / org / collection listing pages (and bare user/topic landings),
+  // which are indexes, not articles.
+  if (host === "github.com" || host.endsWith(".github.com")) {
+    const segments = path.split("/").filter(Boolean);
+    if (segments[0] === "topics" || segments[0] === "orgs" || segments[0] === "collections" || segments.length <= 1) {
+      return "GitHub topic/listing page (not Teaching)";
+    }
+  }
+
+  return null;
+}
+
+function hasBeginnerMarker(candidate: CandidateResource): boolean {
+  const text = `${candidate.title} ${candidate.url}`.toLowerCase();
+  return beginnerMarkers.some((marker) => text.includes(marker));
+}
+
+function lowTierOrThinSource(candidate: CandidateResource): string | null {
+  if (candidate.sourceTier === 3) {
+    return "tier-3 source (too low-authority to be the week's recommended reading)";
+  }
+  if (candidate.sourceCategory === "Social") {
+    return "social source (too thin for a teaching recommendation)";
+  }
+  return null;
+}
+
+// ≤8 cap ordering: prefer the most authoritative tier first, then the source
+// categories best suited to teaching. No teaching score is involved — this only
+// decides which survivors are worth the fetch budget when more than the cap
+// clear Stage 1.
+function fetchCategoryRank(category: CandidateResource["sourceCategory"]): number {
+  if (category === "Practical") return 0;
+  if (category === "Talk") return 1;
+  if (category === "Community") return 2;
+  return 3;
+}
+
+function orderSurvivorsForFetch(survivors: Stage1Survivor[]): Stage1Survivor[] {
+  return [...survivors].sort((a, b) => {
+    if (a.candidate.sourceTier !== b.candidate.sourceTier) {
+      return a.candidate.sourceTier - b.candidate.sourceTier;
+    }
+    return fetchCategoryRank(a.candidate.sourceCategory) - fetchCategoryRank(b.candidate.sourceCategory);
+  });
+}
+
+function countTeachingBodySignals(bodyText: string): number {
+  const lower = bodyText.toLowerCase();
+  let count = 0;
+  for (const signal of teachingBodySignals) {
+    if (lower.includes(signal)) count += 1;
+  }
+  return count;
+}
+
+// Lightweight HTML → article-body extraction. Prefers the semantic <article> or
+// <main> region, drops non-content chrome, strips tags/entities, and caps length
+// so a single huge page cannot dominate term counting.
+function extractArticleBody(html: string): string {
+  const withoutChrome = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, " ");
+
+  const articleMatch = withoutChrome.match(/<article[\s\S]*?<\/article>/i);
+  const mainMatch = withoutChrome.match(/<main[\s\S]*?<\/main>/i);
+  const region = articleMatch?.[0] ?? mainMatch?.[0] ?? withoutChrome;
+
+  const text = cleanText(stripHtmlTags(decodeHtmlEntities(region)));
+  return text.slice(0, 20000);
+}
+
+async function defaultArticleBodyFetcher(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), articleFetchTimeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "user-agent": "ds-ai-curator/1.0 (+recommended-reading body fetch)",
+        accept: "text/html,application/xhtml+xml"
+      }
+    });
+    if (!response.ok) return null;
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("html") && contentType !== "") return null;
+    const html = await response.text();
+    const body = extractArticleBody(html);
+    return body.length >= 200 ? body : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function emptyLearningRecommendation(): LearningRecommendationDebug {
   return {
@@ -271,178 +490,184 @@ function connectedResourceUrls(input: LearningRecommendationInput): Set<string> 
   return urls;
 }
 
-function isAvoidedReaderFormat(candidate: CandidateResource): boolean {
-  const text = textForCandidate(candidate);
-  return (
-    hasAny(text, avoidedTerms) ||
-    candidate.sourceCategory === "Official" ||
-    text.includes("github.com") && text.includes("/releases") ||
-    text.includes("documentation index") ||
-    text.includes("docs index") ||
-    text.includes("help center search")
-  );
-}
-
 function teachingFitFor(assignment: EditorialRoleAssignment): EditorialRoleFit | null {
   return (
     assignment.possibleEditorialRoles.find((role) => role.role === "Teaching" && role.shouldBeReaderFacing) ?? null
   );
 }
 
-function roleFitScore(fit: EditorialRoleFit["fit"]): number {
-  if (fit === "strong") return 80;
-  if (fit === "medium") return 55;
-  return 25;
-}
-
-function scoreRoleTeachingCandidate(
-  assignment: EditorialRoleAssignment,
-  candidate: CandidateResource,
-  teachingFit: EditorialRoleFit,
-  qualified: boolean,
-  connectedToThesis: boolean
-): RoleScoredTeachingCandidate {
-  const qualificationBonus = qualified ? 24 : 0;
-  const connectionBonus = connectedToThesis ? 12 : 0;
-  const readerValue = Math.round(candidate.readerValue * 0.25 + candidate.learningValue * 0.35);
-  const score = roleFitScore(teachingFit.fit) + qualificationBonus + connectionBonus + readerValue;
-  const reasonParts = [
-    `${teachingFit.fit} Teaching fit`,
-    qualified ? "qualified by Editorial Qualification" : "not in the qualified set",
-    connectedToThesis ? "connected to the thesis/evidence set" : "not directly connected to selected evidence"
-  ];
-
+function survivorRef(survivor: Stage1Survivor): TeachingCandidateRejectionDebug {
   return {
-    assignment,
-    candidate,
-    teachingFit,
-    qualified,
-    connectedToThesis,
-    score,
-    reason: reasonParts.join("; ")
+    title: survivor.assignment.title,
+    url: survivor.assignment.url,
+    source: survivor.assignment.source,
+    primaryRole: survivor.assignment.primaryRole,
+    reason: ""
   };
 }
 
-function selectRoleBasedRecommendation(input: LearningRecommendationInput): LearningRecommendationDebug | null {
+// Stage 1 — metadata-reliable elimination only. No teaching score exists here on
+// purpose: a title cannot support one. This decides eligibility using URL/genre
+// patterns (changelogs, docs/reference, event/ticket, GitHub topic pages →
+// never Teaching), beginner markers, and source tier. Thesis-connection and
+// teaching comparison are deferred to Stage 2, where the body is available.
+function stage1MetadataShortlist(
+  input: LearningRecommendationInput,
+  resourcesByUrl: Map<string, CandidateResource>,
+  qualifiedUrls: Set<string>
+): { survivors: Stage1Survivor[]; rejected: TeachingCandidateRejectionDebug[] } {
+  const survivors: Stage1Survivor[] = [];
+  const rejected: TeachingCandidateRejectionDebug[] = [];
+
+  for (const assignment of input.editorialRoles?.roleAssignments ?? []) {
+    const candidate = resourcesByUrl.get(normalizeUrl(assignment.url));
+    const teachingFit = teachingFitFor(assignment);
+    const reject = (reason: string) =>
+      rejected.push({ title: assignment.title, url: assignment.url, source: assignment.source, primaryRole: assignment.primaryRole, reason });
+
+    if (!candidate) {
+      reject("Skipped because the source resource was not available to the recommendation engine.");
+      continue;
+    }
+    if (!teachingFit) {
+      reject(`Skipped because its reader-facing role is ${assignment.primaryRole}, not Teaching.`);
+      continue;
+    }
+    if (assignment.primaryRole !== "Teaching") {
+      reject("Skipped because Recommended Reading requires Teaching as the primary role.");
+      continue;
+    }
+    if (!qualifiedUrls.has(normalizeUrl(candidate.url))) {
+      reject("Skipped because it did not pass Editorial Qualification.");
+      continue;
+    }
+
+    const genre = nonTeachingGenre(candidate);
+    if (genre) {
+      reject(`Skipped by Stage 1 metadata: ${genre}.`);
+      continue;
+    }
+    if (hasBeginnerMarker(candidate)) {
+      reject("Skipped by Stage 1 metadata: beginner marker (101 / getting started / intro), which is newcomer education, not senior-team Teaching.");
+      continue;
+    }
+    const lowTier = lowTierOrThinSource(candidate);
+    if (lowTier) {
+      reject(`Skipped by Stage 1 metadata: ${lowTier}.`);
+      continue;
+    }
+
+    survivors.push({ assignment, candidate, teachingFit });
+  }
+
+  return { survivors, rejected };
+}
+
+// Stage 2 — for the shortlisted survivors only, fetch and extract the article
+// body and run thesis-connection + teaching comparison against that body (never
+// the snippet). Fetches run in parallel within the ≤8 budget. A survivor whose
+// body cannot be fetched, or whose body is not about the thesis, is excluded
+// honestly rather than judged on its title/snippet.
+async function stage2BodyJudgment(
+  shortlist: Stage1Survivor[],
+  connectedUrls: Set<string>,
+  thesisTerms: Set<string>,
+  fetchArticleBody: ArticleBodyFetcher
+): Promise<{ judged: Stage2Judged[]; rejected: TeachingCandidateRejectionDebug[] }> {
+  const rejected: TeachingCandidateRejectionDebug[] = [];
+  const bodies = await Promise.all(
+    shortlist.map((survivor) => fetchArticleBody(survivor.candidate.url).catch(() => null))
+  );
+
+  const judged: Stage2Judged[] = [];
+  shortlist.forEach((survivor, index) => {
+    const body = bodies[index];
+    const directlyConnected = connectedUrls.has(normalizeUrl(survivor.candidate.url));
+
+    if (!body) {
+      rejected.push({
+        ...survivorRef(survivor),
+        reason: "Skipped in Stage 2 because the article body could not be fetched or extracted; Recommended Reading is judged on the body, not the snippet."
+      });
+      return;
+    }
+
+    const bodyText = body.toLowerCase();
+    const thesisTermMatches = countMatchingTerms(bodyText, thesisTerms);
+    const connectedToThesis = directlyConnected || thesisTermMatches >= 3;
+    const teachingSignalCount = countTeachingBodySignals(body);
+
+    if (!connectedToThesis) {
+      rejected.push({
+        ...survivorRef(survivor),
+        reason: `Skipped in Stage 2 because the fetched body is not about this week's thesis (only ${thesisTermMatches} thesis term(s) present in the article).`
+      });
+      return;
+    }
+
+    const score = thesisTermMatches * 8 + teachingSignalCount * 5 + (directlyConnected ? 15 : 0);
+    judged.push({
+      survivor,
+      bodyFetched: true,
+      thesisTermMatches,
+      connectedToThesis,
+      teachingSignalCount,
+      score,
+      reason: `body carries ${thesisTermMatches} thesis-term match(es) and ${teachingSignalCount} teaching cue(s)${directlyConnected ? ", and is directly part of the evidence set" : ""}`
+    });
+  });
+
+  return { judged, rejected };
+}
+
+async function selectRoleBasedRecommendation(
+  input: LearningRecommendationInput,
+  options: LearningRecommendationOptions
+): Promise<LearningRecommendationDebug | null> {
   if (!input.editorialRoles) return null;
 
   const allResources = uniqueQualifiedResources([...(input.allResources ?? []), ...input.qualifiedResources]);
   const resourcesByUrl = candidateByUrl(allResources);
   const qualifiedUrls = qualifiedUrlSet(input);
   const connectedUrls = connectedResourceUrls(input);
-  const considered: TeachingCandidateDebug[] = [];
-  const rejected: TeachingCandidateRejectionDebug[] = [];
-  const scored: RoleScoredTeachingCandidate[] = [];
+  const thesisTerms = relationTerms(input);
+  const fetchArticleBody = options.fetchArticleBody ?? defaultArticleBodyFetcher;
+  const maxFetches = Math.max(1, options.maxTeachingFetches ?? defaultMaxTeachingFetches);
 
-  for (const assignment of input.editorialRoles.roleAssignments) {
-    const candidate = resourcesByUrl.get(normalizeUrl(assignment.url));
-    const teachingFit = teachingFitFor(assignment);
+  // Stage 1: metadata-only elimination → eligible Teaching survivors.
+  const { survivors, rejected: stage1Rejected } = stage1MetadataShortlist(input, resourcesByUrl, qualifiedUrls);
+  const ordered = orderSurvivorsForFetch(survivors);
+  const shortlist = ordered.slice(0, maxFetches);
+  const overflow = ordered.slice(maxFetches);
 
-    if (!candidate) {
-      rejected.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        reason: "Skipped because the source resource was not available to the recommendation engine."
-      });
-      continue;
-    }
-
-    if (!teachingFit) {
-      rejected.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        reason: `Skipped because its reader-facing role is ${assignment.primaryRole}, not Teaching.`
-      });
-      continue;
-    }
-
-    if (assignment.primaryRole !== "Teaching") {
-      rejected.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        reason: "Skipped because Recommended Reading requires Teaching as the primary role."
-      });
-      continue;
-    }
-
-    const qualified = qualifiedUrls.has(normalizeUrl(candidate.url));
-    if (!qualified) {
-      rejected.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        reason: "Skipped because it did not pass Editorial Qualification."
-      });
-      continue;
-    }
-
-    if (isAvoidedReaderFormat(candidate)) {
-      rejected.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        reason: "Skipped because release notes, docs, RFCs, and reference formats should not become recommended reading."
-      });
-      continue;
-    }
-
-    const connectedToThesis = connectedUrls.has(normalizeUrl(candidate.url)) || countMatchingTerms(textForCandidate(candidate), relationTerms(input)) >= 2;
-
-    // Thesis connection is a GATE, not a bonus. The Recommended Reading slot
-    // explains THIS week's thesis; an artifact that isn't about the thesis
-    // cannot teach it, no matter how strong its generic teaching signals are.
-    // Unconnected candidates are rejected outright rather than competing on
-    // score, which is what previously let an off-thesis essay tie on the
-    // connection bonus and win the slot. If this empties the pool, the slot
-    // is omitted (handled below) rather than filled with something irrelevant.
-    if (!connectedToThesis) {
-      rejected.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        reason: "Skipped because it is not connected to this week's thesis; Recommended Reading must teach the thesis, so an unrelated artifact is omitted rather than recommended."
-      });
-      considered.push({
-        title: assignment.title,
-        url: assignment.url,
-        source: assignment.source,
-        primaryRole: assignment.primaryRole,
-        teachingFit: teachingFit.fit,
-        qualified,
-        connectedToThesis,
-        score: 0,
-        reason: "Excluded by thesis-connection gate: strong teaching signals but not about this week's thesis."
-      });
-      continue;
-    }
-
-    const roleScored = scoreRoleTeachingCandidate(assignment, candidate, teachingFit, qualified, connectedToThesis);
-    scored.push(roleScored);
-    considered.push({
-      title: assignment.title,
-      url: assignment.url,
-      source: assignment.source,
-      primaryRole: assignment.primaryRole,
-      teachingFit: teachingFit.fit,
-      qualified,
-      connectedToThesis,
-      score: roleScored.score,
-      reason: roleScored.reason
+  const rejected: TeachingCandidateRejectionDebug[] = [...stage1Rejected];
+  for (const survivor of overflow) {
+    rejected.push({
+      ...survivorRef(survivor),
+      reason: `Skipped because the Stage 1 shortlist is capped at ${maxFetches}; higher-tier Teaching candidates were fetched first.`
     });
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  const best = scored[0] ?? null;
-  const nullReason = "No qualified reader-facing Teaching candidate was available, so Recommended Reading was omitted instead of falling back to evidence, docs, or changelogs.";
+  // Stage 2: body-based thesis-connection + teaching comparison, shortlist only.
+  const { judged, rejected: stage2Rejected } = await stage2BodyJudgment(shortlist, connectedUrls, thesisTerms, fetchArticleBody);
+  rejected.push(...stage2Rejected);
+
+  const considered: TeachingCandidateDebug[] = judged.map((item) => ({
+    title: item.survivor.assignment.title,
+    url: item.survivor.assignment.url,
+    source: item.survivor.assignment.source,
+    primaryRole: item.survivor.assignment.primaryRole,
+    teachingFit: item.survivor.teachingFit.fit,
+    qualified: true,
+    connectedToThesis: item.connectedToThesis,
+    score: item.score,
+    reason: `Stage 2 (body): ${item.reason}`
+  }));
+
+  judged.sort((a, b) => b.score - a.score);
+  const best = judged[0] ?? null;
+  const nullReason =
+    "No Teaching candidate survived Stage 2 body analysis (thesis-connection + teaching comparison on the fetched article), so Recommended Reading was omitted instead of falling back to evidence, docs, or changelogs.";
 
   if (!best) {
     return baseLearningDebug({
@@ -460,16 +685,16 @@ function selectRoleBasedRecommendation(input: LearningRecommendationInput): Lear
 
   const recommendation = recommendationFor(
     {
-      candidate: best.candidate,
+      candidate: best.survivor.candidate,
       score: best.score,
-      relationScore: best.connectedToThesis ? 12 : 0,
-      teachingScore: roleFitScore(best.teachingFit.fit),
+      relationScore: best.thesisTermMatches,
+      teachingScore: best.teachingSignalCount,
       avoidPenalty: 0,
-      reasons: [best.reason, best.teachingFit.reason]
+      reasons: [`the fetched article ${best.reason}`, best.survivor.teachingFit.reason]
     },
     input
   );
-  const whyItWon = `${best.candidate.title} became Recommended Reading because Editorial Roles classify it as reader-facing Teaching, while Evidence and Watchlist items remain proof signals.`;
+  const whyItWon = `${best.survivor.candidate.title} became Recommended Reading because its fetched article body ${best.reason} — the strongest thesis-connected teaching artifact after Stage 2.`;
 
   return baseLearningDebug({
     recommendation,
@@ -478,13 +703,13 @@ function selectRoleBasedRecommendation(input: LearningRecommendationInput): Lear
     teachingCandidatesConsidered: considered,
     teachingCandidatesRejected: rejected,
     whyItWon,
-    alternativesLost: scored.slice(1, 6).map((item) => ({
-      title: item.candidate.title,
-      url: item.candidate.url,
-      source: item.candidate.source,
-      sourceCategory: item.candidate.sourceCategory,
+    alternativesLost: judged.slice(1, 6).map((item) => ({
+      title: item.survivor.candidate.title,
+      url: item.survivor.candidate.url,
+      source: item.survivor.candidate.source,
+      sourceCategory: item.survivor.candidate.sourceCategory,
       score: item.score,
-      reason: item.reason
+      reason: `Stage 2 (body): ${item.reason}`
     })),
     nullConsidered: true,
     nullReason: "Null was considered because Recommended Reading should disappear rather than fall back to evidence, docs, or changelogs."
@@ -583,7 +808,10 @@ function recommendationFor(scored: ScoredLearningCandidate, input: LearningRecom
   };
 }
 
-export function selectLearningRecommendation(input: LearningRecommendationInput): LearningRecommendationDebug {
+export async function selectLearningRecommendation(
+  input: LearningRecommendationInput,
+  options: LearningRecommendationOptions = {}
+): Promise<LearningRecommendationDebug> {
   if (!input.editorialBrief.thesis && !input.thesis?.claim) {
     return baseLearningDebug({
       recommendation: null,
@@ -594,7 +822,7 @@ export function selectLearningRecommendation(input: LearningRecommendationInput)
     });
   }
 
-  const roleBasedRecommendation = selectRoleBasedRecommendation(input);
+  const roleBasedRecommendation = await selectRoleBasedRecommendation(input, options);
   if (roleBasedRecommendation) return roleBasedRecommendation;
 
   const qualified = uniqueQualifiedResources(input.qualifiedResources);

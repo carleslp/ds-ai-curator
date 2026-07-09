@@ -250,6 +250,14 @@ function thesisEngineEnabledFromEnv(): boolean {
   return process.env.THESIS_ENGINE === "true";
 }
 
+// Stage 2 of Recommended Reading fetches article bodies over the network. This
+// is on by default; set RECOMMENDED_READING_FETCH_BODIES=false to gate the live
+// network (e.g. offline runs) — the slot is then omitted rather than guessed
+// from snippets, which Stage 2 deliberately refuses to do.
+function recommendedReadingBodyFetchDisabled(): boolean {
+  return process.env.RECOMMENDED_READING_FETCH_BODIES === "false";
+}
+
 function emptySupportingResourceRanking(): EditorialThesisResult["supportingResourceRanking"] {
   return {
     candidatesConsidered: 0,
@@ -1021,16 +1029,19 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       editorialSelection: selectionResult.decisions,
       topicClassifications: classifyCandidatesTopics(recentCandidatePool)
     });
-    learningRecommendation = selectLearningRecommendation({
-      editorialBrief,
-      thesis: leadSignal,
-      evidence: leadSignal?.evidence ?? [],
-      qualifiedResources: selectionResult.qualifiedCandidates,
-      editorialQualification,
-      allResources: recentCandidatePool,
-      selectionDecisions: selectionResult.decisions,
-      editorialRoles
-    });
+    learningRecommendation = await selectLearningRecommendation(
+      {
+        editorialBrief,
+        thesis: leadSignal,
+        evidence: leadSignal?.evidence ?? [],
+        qualifiedResources: selectionResult.qualifiedCandidates,
+        editorialQualification,
+        allResources: recentCandidatePool,
+        selectionDecisions: selectionResult.decisions,
+        editorialRoles
+      },
+      recommendedReadingBodyFetchDisabled() ? { fetchArticleBody: async () => null } : {}
+    );
     console.log(
       `Step 5: Editorial selection completed (${selectionResult.selectedCandidates.length} selected, ${selectionResult.qualifyingCandidateCount} qualified).`
     );

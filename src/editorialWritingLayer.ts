@@ -17,13 +17,26 @@ export type EditorialWritingLayerSectionDebug = {
   finalMachineryLeakPass: boolean;
   initialOwnershipPresencePass: boolean;
   finalOwnershipPresencePass: boolean;
+  // The full text the validator saw and the labeled verdict for each check, so
+  // a reviewer can see exactly which check rejected the model's prose.
+  originalText: string;
+  finalText: string;
+  initialOffendingTerms: string[];
+  ownershipChecks: Array<{ label: string; pass: boolean }>;
   fallbackApplied: boolean;
+  // "deterministicTemplate" when the reader-facing text is boilerplate rather
+  // than model prose; null when the model's own text survived.
+  fallbackKind: "deterministicTemplate" | null;
+  finalTextIsDeterministic: boolean;
 };
 
 export type EditorialWritingLayerDebug = {
   editorialWritingLayer: {
     applied: boolean;
     rewrittenSections: string[];
+    // Sections whose reader-facing text is a deterministic template, not model
+    // prose. Surfaced so the substitution is never invisible.
+    templatedSections: string[];
     originalSectionTextPreview: Record<string, string>;
     finalSectionTextPreview: Record<string, string>;
     rewriteReasons: string[];
@@ -704,6 +717,7 @@ export function applyEditorialWritingLayer(
     sectionNames.map((sectionName) => {
       const initial = initialContracts.sectionContracts[sectionName as keyof typeof initialContracts.sectionContracts];
       const final = finalContracts.sectionContracts[sectionName as keyof typeof finalContracts.sectionContracts];
+      const fallbackApplied = rewrittenSections.includes(sectionName);
       return [
         sectionName,
         {
@@ -711,11 +725,34 @@ export function applyEditorialWritingLayer(
           finalMachineryLeakPass: final.machineryLeakPass,
           initialOwnershipPresencePass: initial.ownershipPresencePass,
           finalOwnershipPresencePass: final.ownershipPresencePass,
-          fallbackApplied: rewrittenSections.includes(sectionName)
+          originalText: sectionText(originalSections, sectionName),
+          finalText: sectionText(finalSections, sectionName),
+          initialOffendingTerms: initial.offendingTerms,
+          ownershipChecks: initial.ownershipChecks,
+          fallbackApplied,
+          fallbackKind: fallbackApplied ? ("deterministicTemplate" as const) : null,
+          finalTextIsDeterministic: fallbackApplied
         }
       ];
     })
   );
+
+  // Honest degradation: whenever machinery-clean model prose is discarded for a
+  // deterministic template, say so loudly instead of letting the template quietly
+  // impersonate real editorial copy. The machinery-leak substitutions are left
+  // alone — that check is doing real work and its replacements are intended.
+  const templatedSections = sectionNames.filter((sectionName) => rewrittenSections.includes(sectionName));
+  for (const sectionName of templatedSections) {
+    const initial = initialContracts.sectionContracts[sectionName as keyof typeof initialContracts.sectionContracts];
+    if (initial.machineryLeakPass) {
+      const failedChecks = initial.ownershipChecks.filter((check) => !check.pass).map((check) => check.label);
+      console.warn(
+        `Editorial writing layer: '${sectionName}' passed the machinery-leak check but was replaced with a deterministic template ` +
+          `because ${failedChecks.length > 0 ? failedChecks.join("; ") : "the full deterministic fallback was applied"}. ` +
+          `The reader now sees template copy, not the model's prose.`
+      );
+    }
+  }
 
   const originalSectionTextPreview = Object.fromEntries(sectionNames.map((sectionName) => [sectionName, preview(sectionText(originalSections, sectionName))]));
   const finalSectionTextPreview = Object.fromEntries(sectionNames.map((sectionName) => [sectionName, preview(sectionText(finalSections, sectionName))]));
@@ -727,6 +764,7 @@ export function applyEditorialWritingLayer(
     editorialWritingLayer: {
       applied: true,
       rewrittenSections,
+      templatedSections,
       originalSectionTextPreview,
       finalSectionTextPreview,
       rewriteReasons,
@@ -742,6 +780,7 @@ export function emptyEditorialWritingLayerDebug(): EditorialWritingLayerDebug {
     editorialWritingLayer: {
       applied: false,
       rewrittenSections: [],
+      templatedSections: [],
       originalSectionTextPreview: {},
       finalSectionTextPreview: {},
       rewriteReasons: [],
