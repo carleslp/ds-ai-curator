@@ -687,8 +687,17 @@ export function applyEditorialWritingLayer(
   };
   const rewrittenSections: string[] = [];
   const rewriteReasons: string[] = [];
+  // Editor's Pick is intentionally omitted when nothing qualifies as a lead
+  // reading (explicit null, not undefined — see withEditorialSections). The
+  // "names a concrete artifact" ownership check has no way to represent "there
+  // is deliberately nothing here" and always fails against a null pick, and no
+  // template can repair that. Left unguarded, that permanent, unrelated
+  // failure used to trip the all-sections fallback below and discard six
+  // sections of clean LLM prose over one section with nothing to fix.
+  const editorsPickOmitted = digest.editorsPick === null;
 
   for (const [sectionName, result] of Object.entries(initialContracts.sectionContracts)) {
+    if (sectionName === "editorsPick" && editorsPickOmitted) continue;
     if (result.machineryLeakPass && result.ownershipPresencePass) continue;
 
     rewrittenSections.push(sectionName);
@@ -710,8 +719,11 @@ export function applyEditorialWritingLayer(
 
   let finalDigest = applySectionsToDigest(digest, finalSections);
   let finalContracts = validateSectionContracts(finalDigest, leadSignal);
+  const repairableViolations = finalContracts.sectionContractViolations.filter(
+    (violation) => !(editorsPickOmitted && violation.startsWith("editorsPick "))
+  );
 
-  if (finalContracts.sectionContractViolations.length > 0) {
+  if (repairableViolations.length > 0) {
     finalSections = fallbackSections;
     finalDigest = applySectionsToDigest(digest, finalSections);
     finalContracts = validateSectionContracts(finalDigest, leadSignal);
