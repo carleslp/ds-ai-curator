@@ -100,7 +100,7 @@ function renderResourceCard(resource: Resource): string {
       ${
         whyItMatters
           ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:56px;">
-        <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
+        <strong style="color:#5b21b6;">Why it matters:</strong>&nbsp;${escapeHtml(whyItMatters)}
       </div>`
           : ""
       }
@@ -223,7 +223,7 @@ function renderEditorsPick(editorsPick: Resource | null): string {
                           ${
                             whyItMatters
                               ? `<div style="font-size:12px;color:#f5f3ff;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#3b1a68;border-left:3px solid #c4b5fd;border-radius:8px;">
-                            <strong style="color:#ffffff;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
+                            <strong style="color:#ffffff;">Why it matters:</strong>&nbsp;${escapeHtml(whyItMatters)}
                           </div>`
                               : ""
                           }

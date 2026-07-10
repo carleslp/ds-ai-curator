@@ -34,10 +34,26 @@ export function truncateText(value: unknown, maxLength: number): string {
     return text;
   }
 
-  const truncated = text.slice(0, Math.max(0, maxLength - 1)).trimEnd();
+  // Prefer the last complete sentence that fits the budget, so the shipped
+  // text never ends mid-sentence and needs no ellipsis. (?=\s|$) keeps
+  // decimals ("3.5") and abbreviations from counting as sentence ends.
+  const sentenceEnds = [...text.matchAll(/[.!?](?=\s|$)/g)]
+    .map((match) => (match.index ?? -1) + 1)
+    .filter((end) => end > 0 && end <= maxLength);
+  const lastSentenceEnd = sentenceEnds[sentenceEnds.length - 1];
+  if (lastSentenceEnd) {
+    return text.slice(0, lastSentenceEnd).trim();
+  }
+
+  // No full sentence fits — cut at the last complete word instead. Never cut
+  // mid-word (the previous `lastSpace > 120` threshold was an absolute
+  // position, not relative to maxLength, so it never fired for the many
+  // call sites with maxLength <= 120 and silently produced mid-word cuts).
+  const truncated = text.slice(0, Math.max(0, maxLength - 1));
   const lastSpace = truncated.lastIndexOf(" ");
-  const safeCut = lastSpace > 120 ? truncated.slice(0, lastSpace) : truncated;
-  return `${safeCut.trimEnd()}…`;
+  const safeCut = lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated;
+  const withoutDanglingPunctuation = safeCut.trimEnd().replace(/[,;:\-–—]+$/, "");
+  return `${withoutDanglingPunctuation}…`;
 }
 
 const releaseRelevantKeywords = [
