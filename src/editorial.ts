@@ -571,7 +571,7 @@ function buildTeamQuestions(context: ImpactContext, contractMode: boolean, narra
   return contractMode
     ? [
     narrative?.oldAssumption && narrative?.newReality
-      ? `Where are we still operating as if ${narrative.oldAssumption.charAt(0).toLowerCase()}${narrative.oldAssumption.slice(1)}?`
+      ? `Where are we still operating as if ${narrative.oldAssumption.charAt(0).toLowerCase()}${narrative.oldAssumption.slice(1).replace(/[.]+$/, "")}?`
       : `What would need to change in ${surfaces} for this signal to become usable in our workflow?`,
     "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
     `Which governance, accessibility, or Internal QA Agent check would reduce this cost of inaction: ${truncateText(

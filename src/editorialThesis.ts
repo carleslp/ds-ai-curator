@@ -787,20 +787,20 @@ function evidenceReasoningQuestion(role: EvidenceRole): string {
 function uniqueContributionFor(item: EvidenceCandidate): string {
   const text = `${item.evidence.contribution} ${item.candidate.title} ${item.candidate.cleanSummary} ${item.candidate.directDesignSystemEvidence}`.toLowerCase();
 
-  if (/accessibility|a11y|wcag/.test(text)) return "Shows accessibility becoming part of AI-assisted Design System verification.";
-  if (/\bqa\b|test|regression|review/.test(text)) return "Shows QA rules becoming enforceable checks for assisted delivery.";
-  if (/governance|ownership|policy|standards/.test(text)) return "Shows governance becoming an operating constraint for AI-assisted changes.";
-  if (/tokens?|variables?|semantic/.test(text)) return "Shows token intent becoming operational context, not naming convention.";
+  if (/accessibility|a11y|wcag/.test(text)) return "Accessibility is becoming part of AI-assisted Design System verification.";
+  if (/\bqa\b|test|regression|review/.test(text)) return "QA rules are becoming enforceable checks for assisted delivery.";
+  if (/governance|ownership|policy|standards/.test(text)) return "Governance is becoming an operating constraint for AI-assisted changes.";
+  if (/tokens?|variables?|semantic/.test(text)) return "Token intent is becoming operational context, not naming convention.";
   if (/figma|design-to-code|design to code|code generation|component generation/.test(text)) {
-    return "Shows Figma metadata shaping whether generated UI can reuse system components.";
+    return "Figma metadata is shaping whether generated UI can reuse system components.";
   }
   if (/storybook|component metadata|manifest|docgen|mcp|machine-readable|machine readable/.test(text)) {
-    return "Shows component metadata becoming executable knowledge for agents.";
+    return "Component metadata is becoming executable knowledge for agents.";
   }
   if (/docs?|documentation|rag|agent-readable|agent readable/.test(text)) {
-    return "Shows documentation becoming machine-readable system context.";
+    return "Documentation is becoming machine-readable system context.";
   }
-  if (/component api|react native|\breact\b/.test(text)) return "Shows implementation APIs becoming part of the AI-readable system surface.";
+  if (/component api|react native|\breact\b/.test(text)) return "Implementation APIs are becoming part of the AI-readable system surface.";
 
   return item.evidence.contribution;
 }

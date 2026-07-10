@@ -69,8 +69,6 @@ function renderResourceCard(resource: Resource): string {
     ? truncateText(resource.why_it_matters_to_our_team, 220)
     : "";
   const ignoreRisk = resource.ignore_risk ? truncateText(resource.ignore_risk, 180) : "";
-  const affectedAreas = resource.affected_workflow_areas?.length ? resource.affected_workflow_areas.join(", ") : "";
-  const impactScore = resource.impact_score ? `${resource.impact_score}/5` : "";
 
   return `
 <table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="height:100%;background:#ffffff;border:1px solid #ede9f3;border-radius:14px;table-layout:fixed;">
@@ -103,14 +101,6 @@ function renderResourceCard(resource: Resource): string {
         whyItMatters
           ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:56px;">
         <strong style="color:#5b21b6;">Why it matters:</strong> ${escapeHtml(whyItMatters)}
-      </div>`
-          : ""
-      }
-
-      ${
-        impactScore || affectedAreas
-          ? `<div style="font-size:11px;color:#4b5563;line-height:1.55;margin-bottom:10px;padding:9px 11px;background:#fafafa;border:1px solid #f3f4f6;border-radius:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:35px;">
-        <strong style="color:#111827;">Impact on our team:</strong> ${escapeHtml(impactScore)}${impactScore && affectedAreas ? " · " : ""}${escapeHtml(affectedAreas)}
       </div>`
           : ""
       }
