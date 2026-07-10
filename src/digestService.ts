@@ -496,9 +496,11 @@ function buildCandidateFallbackDigest(selectionResult: EditorialSelectionResult)
   const resources = selectionResult.selectedCandidates.map((candidate) =>
     applySelectionMetadataToResource(candidateToResource(candidate), decisionMap.get(normalizeUrl(candidate.url)))
   );
+  // undefined (not null) so the deterministic fallback keeps auto-selecting a
+  // pick; null is reserved for the deliberate "omit Editor's Pick" decision.
   const editorsPick = selectionResult.editorsPickCandidate
-    ? resources.find((resource) => normalizeUrl(resource.url) === normalizeUrl(selectionResult.editorsPickCandidate?.url ?? "")) ?? null
-    : null;
+    ? resources.find((resource) => normalizeUrl(resource.url) === normalizeUrl(selectionResult.editorsPickCandidate?.url ?? "")) ?? undefined
+    : undefined;
 
   return withEditorialSections({
     date: todayIsoDate(),
@@ -653,6 +655,38 @@ function applyWorkflowImpactEditorsPick(digest: Digest, selectionResult: Editori
   };
 }
 
+function isReleaseNoteResource(resource: Resource): boolean {
+  const haystack = `${resource.url} ${resource.title} ${resource.source} ${resource.summary ?? ""} ${resource.cleanSummary ?? ""}`.toLowerCase();
+  return (
+    /\/releases?(\/|$)|\/releases\/tag|\/tags?\//.test(haystack) ||
+    haystack.includes("releases.atom") ||
+    haystack.includes("release notes") ||
+    haystack.includes("changelog")
+  );
+}
+
+// The lead is the thesis, not the artifact. An artifact may occupy Editor's Pick
+// only if it reads as a lead reading: never a release note, never something
+// whose editorial role is pure Evidence, and never one that produces no
+// Monday-morning change. Anything else is proof and belongs in Supporting
+// Signals instead.
+function qualifiesAsEditorsPick(
+  resource: Resource,
+  decisionMap: Map<string, EditorialSelectionDecision>,
+  editorialRoles: EditorialRoleDebug
+): boolean {
+  if (isReleaseNoteResource(resource)) return false;
+
+  const url = normalizeUrl(resource.url);
+  const role = editorialRoles.roleAssignments.find((assignment) => normalizeUrl(assignment.url) === url);
+  if (role?.primaryRole === "Evidence") return false;
+
+  const decision = decisionMap.get(url);
+  if (decision?.mondayMorningChange === "nothing") return false;
+
+  return true;
+}
+
 function applyRepresentativeRenderingAssembly(
   digest: Digest,
   selectionResult: EditorialSelectionResult,
@@ -660,7 +694,8 @@ function applyRepresentativeRenderingAssembly(
   representativeSupportingEvidence: SignalEvidence[],
   leadSignal: CandidateSignal | null,
   narrativeExtraction: NarrativeExtraction,
-  editorialBrief: EditorialBrief
+  editorialBrief: EditorialBrief,
+  editorialRoles: EditorialRoleDebug
 ): { digest: Digest } & EditorialWritingLayerDebug {
   if (!representativeLeadEvidence) {
     return {
@@ -688,19 +723,19 @@ function applyRepresentativeRenderingAssembly(
     return null;
   }
 
-  const editorsPick = resourceForEvidence(representativeLeadEvidence) ?? digest.editorsPick;
+  const leadCandidate = resourceForEvidence(representativeLeadEvidence) ?? digest.editorsPick;
+  const leadQualifies = Boolean(leadCandidate) && qualifiesAsEditorsPick(leadCandidate as Resource, decisionMap, editorialRoles);
+  // Omit (null) when nothing qualifies as a lead reading — the section
+  // disappears rather than featuring a release note or a pure proof artifact.
+  const editorsPick = leadQualifies ? leadCandidate : null;
+
   const supportingResources: Resource[] = [];
   const seenUrls = new Set<string>();
   const seenTitles = new Set<string>();
   const seenSourceFamilies = new Set<string>();
   const seenRepos = new Set<string>();
 
-  for (const evidence of representativeSupportingEvidence) {
-    const resource = resourceForEvidence(evidence);
-    if (!resource || isDuplicateOfEditorsPick(resource, editorsPick)) {
-      continue;
-    }
-
+  const pushSupporting = (resource: Resource): void => {
     const urlKey = normalizeUrl(resource.url);
     const titleKey = normalizeTitleForDedupe(resource.title);
     const sourceFamilyKey = sourceFamilyForResource(resource);
@@ -712,7 +747,7 @@ function applyRepresentativeRenderingAssembly(
       seenSourceFamilies.has(sourceFamilyKey) ||
       seenRepos.has(repoKey)
     ) {
-      continue;
+      return;
     }
 
     supportingResources.push(resource);
@@ -720,6 +755,19 @@ function applyRepresentativeRenderingAssembly(
     seenTitles.add(titleKey);
     seenSourceFamilies.add(sourceFamilyKey);
     seenRepos.add(repoKey);
+  };
+
+  // A demoted lead artifact leads Supporting Signals as the proof it always was.
+  if (!leadQualifies && leadCandidate) {
+    pushSupporting(leadCandidate);
+  }
+
+  for (const evidence of representativeSupportingEvidence) {
+    const resource = resourceForEvidence(evidence);
+    if (!resource || isDuplicateOfEditorsPick(resource, editorsPick)) {
+      continue;
+    }
+    pushSupporting(resource);
   }
 
   const contexts = buildEditorialContexts({
@@ -1132,7 +1180,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         representativeSupportingEvidence,
         leadSignal,
         narrativeExtraction,
-        editorialBrief
+        editorialBrief,
+        editorialRoles
       );
       const editorialDigest = applyLearningRecommendation(applyLeadSignal(editorialAssembly.digest, leadSignal), learningRecommendation);
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
@@ -1264,7 +1313,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         representativeSupportingEvidence,
         leadSignal,
         narrativeExtraction,
-        editorialBrief
+        editorialBrief,
+        editorialRoles
       );
       const fallbackDigest = applyLearningRecommendation(applyLeadSignal(fallbackAssembly.digest, leadSignal), learningRecommendation);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);

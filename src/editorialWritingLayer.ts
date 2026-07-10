@@ -9,7 +9,7 @@ import type {
   SupportingSignalsContext
 } from "./editorialContexts.js";
 import type { CandidateSignal } from "./editorialThesis.js";
-import { validateSectionContracts } from "./editorialContracts.js";
+import { enumDerivedProse, validateSectionContracts } from "./editorialContracts.js";
 import { cleanText, truncateText } from "./textUtils.js";
 
 export type EditorialWritingLayerSectionDebug = {
@@ -184,7 +184,7 @@ function bannedTermsInReaderText(value: string): string[] {
   const text = cleanText(value);
   const lower = text.toLowerCase();
 
-  return readerCardBannedTerms.filter((term) => {
+  const terms = readerCardBannedTerms.filter((term) => {
     const normalized = term.toLowerCase();
     if (/^[a-z0-9-]+$/i.test(normalized)) {
       return new RegExp(`\\b${normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(text);
@@ -192,6 +192,14 @@ function bannedTermsInReaderText(value: string): string[] {
 
     return lower.includes(normalized);
   });
+
+  // Enum-derived prose (a comma-joined run of affected_workflow_areas) is
+  // machinery too — a card must not read like a dumped enum.
+  if (enumDerivedProse(text)) {
+    terms.push("enum-derived workflow list");
+  }
+
+  return terms;
 }
 
 const cardStopWords = new Set([

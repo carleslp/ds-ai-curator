@@ -161,9 +161,13 @@ function readingTime(resource: Resource): string {
 }
 
 function workflowPhrase(areas: string[]): string {
-  if (areas.length <= 1) return areas[0] ?? "Design System documentation";
-  if (areas.length === 2) return `${areas[0]} and ${areas[1]}`;
-  return `${areas.slice(0, -1).join(", ")}, and ${areas[areas.length - 1]}`;
+  const clean = areas.map(cleanText).filter(Boolean);
+  if (clean.length === 0) return "Design System documentation";
+  if (clean.length === 1) return clean[0];
+  // Never enumerate the enum. Reader copy names at most two surfaces so it reads
+  // like an editor wrote it, not like a machine dumped affected_workflow_areas
+  // ("Storybook, Documentation, React, React Native, and Metadata").
+  return `${clean[0]} and ${clean[1]}`;
 }
 
 function uniqueOrdered(values: string[]): string[] {
@@ -475,19 +479,21 @@ function buildSupportingSignals(
 ): string[] {
   if (contractMode && brief?.supportingEvidence.length) {
     const support = brief.supportingEvidence.slice(0, 3);
+    // No "Proof:" / "Consequence:" role labels — the reader gets the observation,
+    // not the editorial scaffolding used to assemble it.
     return [
-      support[0] ? `Proof: ${support[0]}` : brief.leadEvidence,
-      support[1] ? `Consequence: ${support[1]}` : brief.consequences.immediate,
-      support[2] ? `Next move: ${support[2]}` : brief.consequences.mediumTerm
+      support[0] || brief.leadEvidence,
+      support[1] || brief.consequences.immediate,
+      support[2] || brief.consequences.mediumTerm
     ].map((item) => publicationSafeText(truncateText(item, 170)));
   }
 
   if (contractMode && narrative?.supportingObservations.length) {
     const observations = narrative.supportingObservations.slice(0, 3);
     return [
-      observations[0] ? `Lead proof: ${observations[0]}` : narrative.leadProof,
-      observations[1] ? `Corroboration: ${observations[1]}` : narrative.implicationForDesignSystemTeams,
-      observations[2] ? `Implication: ${observations[2]}` : narrative.readerTakeaway
+      observations[0] || narrative.leadProof,
+      observations[1] || narrative.implicationForDesignSystemTeams,
+      observations[2] || narrative.readerTakeaway
     ].map((item) => publicationSafeText(truncateText(item, 170)));
   }
 
@@ -614,9 +620,14 @@ export function withEditorialSections(
 ): Digest {
   const contractMode = Boolean(editorialContexts);
   const resources = enrichResources(digest.resources, contractMode);
-  const provisionalEditorsPick = digest.editorsPick
-    ? enrichResources([digest.editorsPick], contractMode)[0]
-    : selectEditorsPick(resources);
+  // Explicit null means the caller decided no artifact qualifies as the lead
+  // reading, so Editor's Pick is omitted. Only undefined triggers auto-selection.
+  const provisionalEditorsPick =
+    digest.editorsPick === null
+      ? null
+      : digest.editorsPick
+        ? enrichResources([digest.editorsPick], contractMode)[0]
+        : selectEditorsPick(resources);
   const contexts =
     editorialContexts ??
     buildEditorialContexts({

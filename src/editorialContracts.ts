@@ -207,11 +207,55 @@ function offendingTermsFor(value: string): string[] {
   });
 }
 
+// Named surfaces from the affected_workflow_areas enum. Used only to detect
+// enum-derived prose — reader copy that lists three or more of these as a
+// comma-joined run reads like a machine dumped the enum, not like an editor
+// wrote a sentence.
+const workflowEnumNames = [
+  "figma",
+  "storybook",
+  "react native",
+  "react",
+  "azure devops",
+  "governance",
+  "documentation",
+  "accessibility",
+  "metadata",
+  "internal design system agent",
+  "internal qa agent",
+  "internal design system",
+  "internal qa"
+];
+
+// Detects an enumeration of workflow-area names (three or more items separated
+// by commas / "and"). Keyed off the known enum vocabulary so ordinary lists
+// like "designers, engineers, and agents" never trip it.
+export function enumDerivedProse(value: string): boolean {
+  const parts = value
+    .toLowerCase()
+    .split(/,|\band\b/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  let areaParts = 0;
+  for (const part of parts) {
+    if (workflowEnumNames.some((name) => part === name || part.endsWith(` ${name}`) || part.endsWith(name))) {
+      areaParts += 1;
+    }
+  }
+  return areaParts >= 3;
+}
+
 // Public checker so the render path can hold template-generated reader copy to
 // the same machinery-vocabulary standard the section validator applies to LLM
-// output. Returns the banned terms present in `value` (empty when clean).
+// output. Also flags enum-derived prose. Returns the offending terms present in
+// `value` (empty when clean). Deliberately not used by the section-contract
+// validator, so LLM section prose is unaffected.
 export function machineryTermsIn(value: string): string[] {
-  return offendingTermsFor(value);
+  const terms = offendingTermsFor(value);
+  if (enumDerivedProse(value)) {
+    terms.push("enum-derived workflow list");
+  }
+  return terms;
 }
 
 function resourceContractText(resource: Resource): string {
