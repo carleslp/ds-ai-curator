@@ -127,7 +127,17 @@ export function buildEditorialBrief(input: EditorialBriefInput): EditorialBrief 
     : input.evidenceReasoning.entries.filter((entry) => entry.status === "kept").map((entry) => entry.uniqueContribution).slice(1, 4);
   const immediate = compact(frame.implicationForDesignSystemTeams, 180);
   const mediumTerm = compact(`${frame.newReality} ${frame.readerTakeaway}`, 190);
-  const experiment = compact(`Start with one high-use component and test whether ${withoutPeriod(frame.readerTakeaway).toLowerCase()}`, 170);
+  // frame.readerTakeaway is always an imperative clause ("Treat system
+  // readability as..." / "Start with the workflow rule..."), so it can only be
+  // chained after another imperative — never spliced into a "test whether"
+  // clause, which needs a declarative. Mirrors the "Because X, start with Y
+  // and Z" shape already used by buildSuggestedExperiment's own fallback.
+  const reason = withoutPeriod(frame.newReality);
+  const takeaway = withoutPeriod(frame.readerTakeaway);
+  const experiment = compact(
+    `Because ${reason.charAt(0).toLowerCase()}${reason.slice(1)}, start with one high-use component and ${takeaway.charAt(0).toLowerCase()}${takeaway.slice(1)}.`,
+    200
+  );
   const discussionQuestions = [
     `Where are we still assuming ${withoutPeriod(frame.oldAssumption).charAt(0).toLowerCase()}${withoutPeriod(frame.oldAssumption).slice(1)}?`,
     "Which system rule would an internal agent still have to infer?",

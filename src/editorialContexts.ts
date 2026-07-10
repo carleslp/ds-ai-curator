@@ -220,8 +220,12 @@ export function buildEditorialContexts(input: EditorialContextBuilderInput): Edi
     },
     moveContext: {
       opportunityMove,
+      // preconditions[0] is always read as the object of "start with ${...}"
+      // (buildSuggestedExperiment, writeSuggestedExperimentSection) — it must
+      // be a noun phrase, not its own imperative, or the two verbs collide
+      // ("start with Choose one high-use component").
       preconditions: [
-        "Choose one high-use component",
+        "one high-use component",
         "Compare Figma, Storybook, implementation, documentation, and ownership metadata",
         "Capture one gap an internal agent should not infer"
       ],
