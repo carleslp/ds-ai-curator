@@ -124,10 +124,25 @@ const beginnerPenaltyRules: SignalRule[] = [
   { terms: ["building blocks"], points: 8, reason: "Foundational building-block content" },
   { terms: ["guide to design tokens"], points: 12, reason: "Generic design token guide" },
   { terms: ["what are design tokens"], points: 12, reason: "Generic design token explainer" },
-  { terms: ["typography as a system"], points: 12, reason: "Generic typography system content" },
   { terms: ["motion design tokens"], points: 12, reason: "Generic motion token content" },
   { terms: ["what is a design system"], points: 12, reason: "Generic Design System explainer" }
 ];
+
+// "Typography as a system" alone reads as a generic 101 explainer, but a
+// title that pairs it with an explicit "goes beyond the basics" qualifier
+// (e.g. "Typography as a System: Beyond Font Choices and Scale") is signaling
+// the opposite — advanced content, not an introduction. Scored separately
+// from beginnerPenaltyRules because the false positive is specific to this
+// one hardcoded phrase, not the whole beginner-penalty mechanism.
+const typographyAdvancedQualifiers = ["beyond", "advanced", "deep dive", "in depth", "in-depth"];
+
+function typographySystemPenalty(text: string, reasons: string[]): number {
+  if (!text.includes("typography as a system")) return 0;
+  if (typographyAdvancedQualifiers.some((qualifier) => text.includes(qualifier))) return 0;
+
+  reasons.push("Generic typography system content");
+  return 12;
+}
 
 const marketingPenaltyRules: SignalRule[] = [
   { terms: ["pricing"], points: 8, reason: "Pricing/marketing page" },
@@ -229,7 +244,7 @@ export function scoreEditorialCandidate(candidate: CandidateResource, candidates
   const practicalityScore = scoreRules(text, practicalityRules, editorialReasons);
   const sourceScore = candidate.sourceScore;
 
-  const beginnerPenalty = scoreRules(text, beginnerPenaltyRules, editorialReasons);
+  const beginnerPenalty = scoreRules(text, beginnerPenaltyRules, editorialReasons) + typographySystemPenalty(text, editorialReasons);
   const marketingPenalty = scoreRules(text, marketingPenaltyRules, editorialReasons);
   let genericPenalty = scoreRules(text, genericPenaltyRules, editorialReasons);
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { CandidateResource } from "./collectCandidates.js";
 import { buildEditorialBrief, emptyEditorialBrief } from "./editorialBrief.js";
+import { scoreEditorialCandidate } from "./editorialEngine.js";
 import { evaluateEditorialQualification, qualifyEditorialCandidates } from "./editorialQualification.js";
 import { assignEditorialRoles } from "./editorialRoles.js";
 import { selectEditorialCandidates } from "./editorialSelection.js";
@@ -1069,6 +1070,34 @@ assert.equal(
   evidenceLowActionability.rejectionReason,
   "Skipped because the Monday Morning Test produced no concrete team change.",
   "Evidence-format resources must still clear the Monday Morning Test."
+);
+
+// PR-9: the "typography as a system" beginner-penalty false positive. The
+// bare phrase alone still reads as generic 101 content, but a title that
+// pairs it with an explicit "goes beyond the basics" qualifier should not
+// eat the same penalty.
+function scoreCandidateText(title: string, source: string): number {
+  return scoreEditorialCandidate(
+    candidate({
+      title,
+      url: `https://example.com/${encodeURIComponent(title)}`,
+      source,
+      snippet: "",
+      cleanSummary: "",
+      rawText: ""
+    })
+  ).beginnerPenalty;
+}
+
+assert.equal(
+  scoreCandidateText("Typography as a System", "Medium Design Tokens"),
+  12,
+  "A bare 'typography as a system' title with no depth qualifier should still be penalized as generic."
+);
+assert.equal(
+  scoreCandidateText("Typography as a System: Beyond Font Choices and Scale", "Medium Design Tokens"),
+  0,
+  "A title that explicitly signals it goes beyond the basics should not eat the generic-typography penalty."
 );
 
 console.log("Editorial selection test passed.");
