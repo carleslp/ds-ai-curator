@@ -100,6 +100,37 @@ function isEvidenceFormatCandidate(candidate: CandidateResource, text: string): 
   );
 }
 
+// Teaching artifacts (essays, explainers, deep dives, talks, governance/practice
+// guides) change how the reader thinks, not necessarily what they do Monday
+// morning. The actionability / Monday Morning Test standard is an
+// Evidence/Practice bar — it proves a change happened or shows a team how to
+// act on one. Applying it to Teaching kills genuine teaching content that
+// scores well editorially but has no concrete next step. Evidence-format
+// candidates are never Teaching regardless of phrasing.
+function isTeachingCandidate(candidate: CandidateResource, text: string): boolean {
+  if (isEvidenceFormatCandidate(candidate, text)) return false;
+
+  return (
+    candidate.sourceCategory === "Practical" ||
+    candidate.sourceCategory === "Talk" ||
+    hasAnyText(text, [
+      "essay",
+      "talk",
+      "video",
+      "conference",
+      "session",
+      "deep dive",
+      "explainer",
+      "guide",
+      "walkthrough",
+      "medium",
+      "smashing",
+      "frontend masters",
+      "practitioner"
+    ])
+  );
+}
+
 function hasAiTextSignal(text: string): boolean {
   return (
     /(^|[^a-z])ai([^a-z]|$)/i.test(text) ||
@@ -372,6 +403,8 @@ function qualityRejection(
     "designSystemTopics" | "workflowTopics" | "aiTopics" | "editorialMissionMatch" | "editorialValueMatch" | "actionabilityScore" | "mondayMorningChange"
   >
 ): string {
+  const text = textForCandidate(candidate);
+
   if (topicGroup === "AI Research" && !hasAiResearchWorkflowConnection(topics)) {
     return "Skipped because AI Research lacks a direct Design System workflow connection.";
   }
@@ -384,12 +417,18 @@ function qualityRejection(
     return valueRejectReason;
   }
 
-  if (topics.mondayMorningChange === "nothing") {
-    return mondayRejectReason;
-  }
+  // Evidence and Practice must clear the Monday Morning Test: they exist to
+  // prove a change happened or to tell a team what to do about it. Teaching
+  // qualifies on editorial value and Design System relevance alone — it is
+  // not disqualified for having no concrete next step.
+  if (!isTeachingCandidate(candidate, text)) {
+    if (topics.mondayMorningChange === "nothing") {
+      return mondayRejectReason;
+    }
 
-  if (topics.actionabilityScore < minimumActionabilityScore) {
-    return `Skipped because actionabilityScore (${topics.actionabilityScore}) is below ${minimumActionabilityScore}.`;
+    if (topics.actionabilityScore < minimumActionabilityScore) {
+      return `Skipped because actionabilityScore (${topics.actionabilityScore}) is below ${minimumActionabilityScore}.`;
+    }
   }
 
   if (score.beginnerPenalty >= 20) {
@@ -404,7 +443,7 @@ function qualityRejection(
     return "Skipped because no Design System or UI workflow connection was strong enough.";
   }
 
-  if (score.aiScore === 0 && isEvidenceFormatCandidate(candidate, textForCandidate(candidate))) {
+  if (score.aiScore === 0 && isEvidenceFormatCandidate(candidate, text)) {
     return "Skipped because no AI, automation, agent, MCP, or code-generation signal was strong enough for primary-source evidence.";
   }
 

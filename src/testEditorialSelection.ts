@@ -1015,4 +1015,60 @@ assert.equal(
 );
 assert.match(releaseNoAi.missionReason, /not about AI or AI-powered tooling/i);
 
+// PR-8: role-condition the actionability gate. Evidence/Practice must still
+// clear the Monday Morning Test — they exist to prove a change happened or
+// tell a team what to do about it. Teaching qualifies on editorial value and
+// Design System relevance alone, even with zero actionability, because it
+// changes how the reader thinks rather than what they do Monday morning.
+const actionabilityConditionalResult = selectEditorialCandidates([
+  candidate({
+    title: "Design Token Semantics and Accessibility Foundations for Component Library Documentation",
+    url: "https://example.com/design-token-semantics-accessibility-foundations",
+    source: "Design Systems Weekly",
+    snippet:
+      "A foundational explainer on design tokens, accessibility and component library documentation semantics for Design System teams.",
+    cleanSummary:
+      "A foundational explainer on design tokens, accessibility and component library documentation semantics for Design System teams.",
+    directDesignSystemEvidence: "Design tokens, accessibility and component library evidence in title/snippet.",
+    sourceCategory: "Practical",
+    readerValue: 85,
+    learningValue: 90
+  }),
+  candidate({
+    title: "Storybook 9.3 Release Notes",
+    url: "https://storybook.js.org/releases/9.3",
+    source: "Storybook Releases",
+    snippet: "Release notes for Storybook 9.3: AI design tokens support for component library themes.",
+    cleanSummary: "Release notes for Storybook 9.3: AI design tokens support for component library themes.",
+    directDesignSystemEvidence: "Design tokens and component library evidence in title/snippet."
+  })
+]);
+
+const teachingLowActionability = actionabilityConditionalResult.decisions.find((decision) =>
+  decision.title.includes("Design Token Semantics")
+);
+assert.ok(teachingLowActionability, "Expected the Teaching candidate to be evaluated.");
+assert.equal(teachingLowActionability.actionabilityScore, 0, "Fixture should genuinely have zero actionability signal.");
+assert.equal(teachingLowActionability.mondayMorningChange, "nothing", "Fixture should genuinely fail the Monday Morning Test.");
+assert.equal(
+  teachingLowActionability.rejectionReason,
+  "",
+  "A Teaching artifact should qualify on editorial value and DS relevance even with zero actionability."
+);
+assert.ok(
+  actionabilityConditionalResult.qualifiedCandidates.some((c) => c.title.includes("Design Token Semantics")),
+  "Expected the Teaching candidate to be qualified."
+);
+
+const evidenceLowActionability = actionabilityConditionalResult.decisions.find((decision) =>
+  decision.title.includes("Storybook 9.3 Release Notes")
+);
+assert.ok(evidenceLowActionability, "Expected the release-note candidate to be evaluated.");
+assert.equal(evidenceLowActionability.actionabilityScore, 0, "Fixture should genuinely have zero actionability signal.");
+assert.equal(
+  evidenceLowActionability.rejectionReason,
+  "Skipped because the Monday Morning Test produced no concrete team change.",
+  "Evidence-format resources must still clear the Monday Morning Test."
+);
+
 console.log("Editorial selection test passed.");
