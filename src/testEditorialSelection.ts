@@ -920,19 +920,34 @@ assert.equal(
 );
 assert.deepEqual(rejectedMobileUx.designSystemTopics, []);
 
+// Role-conditional gate (PR-7): this Design Systems-only item is not an
+// Evidence-format resource, so it no longer needs to mention AI to pass
+// mission match. It still ends up rejected, but now on its actual editorial
+// weakness (no concrete Monday-morning change) instead of a blanket AI veto.
 const rejectedDsOnly = result.rejectedDecisions.find((decision) => decision.title.includes("Design System governance"));
 assert.ok(rejectedDsOnly, "Expected Design Systems-only item to be rejected.");
-assert.equal(rejectedDsOnly.editorialMissionMatch, false);
-assert.match(rejectedDsOnly.missionReason, /not about AI or AI-powered tooling/i);
+assert.equal(rejectedDsOnly.editorialMissionMatch, true);
+assert.equal(
+  rejectedDsOnly.rejectionReason,
+  "Skipped because the Monday Morning Test produced no concrete team change."
+);
 
 const rejectedAiOnly = result.rejectedDecisions.find((decision) => decision.title.includes("LLM benchmark"));
 assert.ok(rejectedAiOnly, "Expected AI-only item to be rejected.");
 assert.equal(rejectedAiOnly.editorialMissionMatch, false);
 assert.match(rejectedAiOnly.missionReason, /direct impact on mature Design System work/i);
 
+// "React" alone trips the topic classifier's loose Design System detection,
+// so mission match now passes here too (role-conditional gate no longer
+// requires AI). The item still stays rejected downstream because neither
+// designSystemScore nor workflowScore clears the real Design System bar.
 const rejectedFrontendOnly = result.rejectedDecisions.find((decision) => decision.title.includes("Frontend performance"));
 assert.ok(rejectedFrontendOnly, "Expected frontend-only item to be rejected.");
-assert.equal(rejectedFrontendOnly.editorialMissionMatch, false);
+assert.equal(rejectedFrontendOnly.editorialMissionMatch, true);
+assert.equal(
+  rejectedFrontendOnly.rejectionReason,
+  "Skipped because no Design System or UI workflow connection was strong enough."
+);
 
 assert.ok(
   result.selectedDecisions.some((decision) => decision.title.includes("Figma2Code") && decision.editorialMissionMatch),
@@ -952,5 +967,52 @@ assert.notEqual(figma2Code.mondayMorningChange, "nothing");
 const storybookAi = result.selectedDecisions.find((decision) => decision.title.includes("Storybook AI MCP"));
 assert.ok(storybookAi, "Expected Storybook AI/MCP decision.");
 assert.equal(storybookAi.editorialTitle, "Storybook prepares AI-ready component metadata");
+
+// PR-7: role-conditional qualification. Evidence-format resources (release
+// notes, changelogs, RFCs, arXiv papers) must still prove the AI thesis
+// directly. Teaching/Practice artifacts only need strong Design System
+// relevance and need not mention AI themselves.
+const roleConditionalResult = selectEditorialCandidates([
+  candidate({
+    title: "Design Token Governance and Accessibility Workflow for Enterprise Component Libraries",
+    url: "https://example.com/design-token-governance-accessibility-workflow",
+    source: "Design Systems Weekly",
+    snippet:
+      "A governance workflow for design tokens, accessibility and component library documentation across enterprise Design System teams.",
+    cleanSummary:
+      "A governance workflow for design tokens, accessibility and component library documentation across enterprise Design System teams.",
+    directDesignSystemEvidence: "Design tokens, accessibility, component library and governance evidence in title/snippet."
+  }),
+  candidate({
+    title: "Storybook 9.2 Release Notes",
+    url: "https://storybook.js.org/releases/9.2",
+    source: "Storybook Releases",
+    snippet: "Release notes for Storybook 9.2 covering new component APIs, accessibility fixes and design tokens support.",
+    cleanSummary: "Release notes for Storybook 9.2 covering new component APIs, accessibility fixes and design tokens support.",
+    directDesignSystemEvidence: "Component API and design tokens evidence in title/snippet."
+  })
+]);
+
+const teachingNoAi = roleConditionalResult.decisions.find((decision) => decision.title.includes("Design Token Governance"));
+assert.ok(teachingNoAi, "Expected the Teaching/Practice candidate to be evaluated.");
+assert.equal(
+  teachingNoAi.editorialMissionMatch,
+  true,
+  "A DS-relevant Teaching/Practice artifact should qualify without mentioning AI."
+);
+assert.equal(teachingNoAi.rejectionReason, "", "Strong DS Teaching/Practice content should not be rejected for lacking AI text.");
+assert.ok(
+  roleConditionalResult.qualifiedCandidates.some((c) => c.title.includes("Design Token Governance")),
+  "Expected the Teaching/Practice candidate to be qualified."
+);
+
+const releaseNoAi = roleConditionalResult.decisions.find((decision) => decision.title.includes("Storybook 9.2 Release Notes"));
+assert.ok(releaseNoAi, "Expected the release-note candidate to be evaluated.");
+assert.equal(
+  releaseNoAi.editorialMissionMatch,
+  false,
+  "Evidence-format resources still require AI relevance to prove the thesis."
+);
+assert.match(releaseNoAi.missionReason, /not about AI or AI-powered tooling/i);
 
 console.log("Editorial selection test passed.");

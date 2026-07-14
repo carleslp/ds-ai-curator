@@ -78,6 +78,28 @@ function hasAnyText(text: string, terms: string[]): boolean {
   return terms.some((term) => text.includes(term));
 }
 
+// Evidence-format candidates (primary sources) must prove the AI thesis
+// directly. Teaching/Practice artifacts teach the Design System practice the
+// thesis depends on and do not need to mention AI themselves. sourceCategory
+// "Official" is deliberately excluded here: it is collectCandidates.ts's
+// catch-all default for anything unclassified, not a primary-source signal.
+function isEvidenceFormatCandidate(candidate: CandidateResource, text: string): boolean {
+  return (
+    candidate.sourceCategory === "Research" ||
+    hasAnyText(text, [
+      "release notes",
+      "changelog",
+      "/releases",
+      "releases.atom",
+      "rfc",
+      "api reference",
+      "reference documentation",
+      "official docs",
+      "arxiv"
+    ])
+  );
+}
+
 function hasAiTextSignal(text: string): boolean {
   return (
     /(^|[^a-z])ai([^a-z]|$)/i.test(text) ||
@@ -311,31 +333,33 @@ function missionMatchFor(
     score.workflowScore > 0 ||
     candidate.directDesignSystemEvidence.trim().length > 0;
 
-  if (hasAiRelevance && hasDirectDesignSystemImpact) {
+  if (!hasDirectDesignSystemImpact) {
     return {
-      editorialMissionMatch: true,
-      missionReason:
-        "Matches mission: AI or AI-powered tooling intersects with mature Design System work such as design, documentation, governance, implementation, testing, maintenance, or consumption."
+      editorialMissionMatch: false,
+      missionReason: hasAiRelevance
+        ? "Rejected mission match: AI relevance exists, but direct impact on mature Design System work was not strong enough."
+        : "Rejected mission match: neither AI-powered tooling nor direct Design System workflow impact was strong enough."
     };
   }
 
-  if (!hasAiRelevance && !hasDirectDesignSystemImpact) {
+  // Direct Design System impact exists. Evidence-format resources (releases,
+  // changelogs, RFCs, API references, arXiv papers) must still prove the AI
+  // thesis directly — a changelog that never says "AI" is not evidence of an
+  // AI development. Teaching/Practice artifacts (essays, talks, governance,
+  // accessibility, token workflow pieces) teach the underlying Design System
+  // practice the thesis depends on and need not mention AI themselves.
+  if (isEvidenceFormatCandidate(candidate, text) && !hasAiRelevance) {
     return {
       editorialMissionMatch: false,
-      missionReason: "Rejected mission match: neither AI-powered tooling nor direct Design System workflow impact was strong enough."
-    };
-  }
-
-  if (!hasAiRelevance) {
-    return {
-      editorialMissionMatch: false,
-      missionReason: "Rejected mission match: Design System relevance exists, but the resource is not about AI or AI-powered tooling."
+      missionReason: "Rejected mission match: Design System relevance exists, but this primary-source/evidence-format resource is not about AI or AI-powered tooling."
     };
   }
 
   return {
-    editorialMissionMatch: false,
-    missionReason: "Rejected mission match: AI relevance exists, but direct impact on mature Design System work was not strong enough."
+    editorialMissionMatch: true,
+    missionReason: hasAiRelevance
+      ? "Matches mission: AI or AI-powered tooling intersects with mature Design System work such as design, documentation, governance, implementation, testing, maintenance, or consumption."
+      : "Matches mission: strong Design System relevance supports the thesis's implied work; a Teaching/Practice artifact need not mention AI to teach the practice mature Design System teams rely on."
   };
 }
 
@@ -380,8 +404,8 @@ function qualityRejection(
     return "Skipped because no Design System or UI workflow connection was strong enough.";
   }
 
-  if (score.aiScore === 0) {
-    return "Skipped because no AI, automation, agent, MCP, or code-generation signal was strong enough.";
+  if (score.aiScore === 0 && isEvidenceFormatCandidate(candidate, textForCandidate(candidate))) {
+    return "Skipped because no AI, automation, agent, MCP, or code-generation signal was strong enough for primary-source evidence.";
   }
 
   if (score.totalScore < minimumEditorialScore) {
