@@ -523,6 +523,25 @@ function parseFeedItems(xml: string, source: CuratedSource): UnscoredCandidateRe
     .filter((candidate): candidate is UnscoredCandidateResource => Boolean(candidate));
 }
 
+// stripHtmlTags turns every block-level closing tag into a literal ". ", so
+// feeding a whole card (heading + date + summary + "Read more") through it
+// produces a period-riddled run-on string instead of a headline. Prefer the
+// card's own heading element as the title when one exists; fall back to the
+// whole block only when the card has no heading to extract. h4-h6 included
+// deliberately: some sites (e.g. anthropic.com) style their card headline as
+// an <h4>, not <h1>-<h3> — still a semantic headline, not body text.
+export function titleFromCardHtml(cardHtml: string): string {
+  const headingMatch = cardHtml.match(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/i);
+  if (headingMatch) {
+    const headingTitle = decodeEntities(stripTags(headingMatch[1]));
+    if (headingTitle) {
+      return headingTitle;
+    }
+  }
+
+  return decodeEntities(stripTags(cardHtml));
+}
+
 function parseHtmlItems(html: string, source: CuratedSource): UnscoredCandidateResource[] {
   const pageTitle = textBetween(html, "title") ?? source.name;
   const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)];
@@ -530,7 +549,7 @@ function parseHtmlItems(html: string, source: CuratedSource): UnscoredCandidateR
   return links
     .map((match): UnscoredCandidateResource | undefined => {
       const url = absoluteUrl(match[1], source.url);
-      const title = decodeEntities(stripTags(match[2]));
+      const title = titleFromCardHtml(match[2]);
 
       if (!url || !title || title.length < 12) {
         return undefined;
