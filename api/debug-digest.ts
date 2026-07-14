@@ -98,6 +98,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
     suggestedExperiment: result.digest.suggestedExperiment,
     nextWeekWatchlist: result.digest.nextWeekWatchlist,
     sourceResults: result.sourceResults,
+    droppedArtifacts: result.droppedArtifacts,
+    pipelineCounts: result.pipelineCounts,
     rejectedCandidates: result.rejectedCandidates,
     candidatesPreview: result.candidatesPreview,
     selectedPreview: result.selectedPreview,

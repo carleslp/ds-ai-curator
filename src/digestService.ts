@@ -1,6 +1,8 @@
 import {
   collectCandidatesWithDiagnostics,
   type CandidateResource,
+  type DroppedCandidate,
+  type PipelineCounts,
   type SourceResult
 } from "./collectCandidates.js";
 import {
@@ -232,6 +234,8 @@ type DailyDigestResult = {
   selectedResourceCount: number;
   fallbackReason?: string;
   sourceResults: SourceResult[];
+  droppedArtifacts: DroppedCandidate[];
+  pipelineCounts: PipelineCounts;
   rejectedCandidates: EditorialSelectionDecision[];
   candidatesPreview: CandidatePreview[];
   selectedPreview: SelectedPreview[];
@@ -946,6 +950,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let editorialRoles: EditorialRoleDebug = emptyEditorialRoles();
   let selectionResult: EditorialSelectionResult = selectEditorialCandidates([]);
   let sourceResults: SourceResult[] = [];
+  let droppedArtifacts: DroppedCandidate[] = [];
+  let pipelineCounts: PipelineCounts = { rawCount: 0, dedupedCount: 0, plausibleCount: 0, englishAndRecentCount: 0, finalCount: 0 };
   let rejectedCandidates: EditorialSelectionDecision[] = [];
   let leadSignal: CandidateSignal | null = null;
   let candidateSignals: CandidateSignal[] = [];
@@ -1017,6 +1023,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     const collectionResult = await collectCandidatesWithDiagnostics();
     candidates = collectionResult.candidates;
     sourceResults = collectionResult.sourceResults;
+    droppedArtifacts = collectionResult.droppedArtifacts;
+    pipelineCounts = collectionResult.pipelineCounts;
     console.log(`Step 2: Candidate collection completed (${candidates.length} candidates).`);
 
     recentCandidatePool = filterRecentCandidates(candidates);
@@ -1155,6 +1163,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedResourceCount: fallbackDigest.resources.length,
         fallbackReason: "No candidates survived editorial selection.",
         sourceResults,
+        droppedArtifacts,
+        pipelineCounts,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: previewResources(fallbackDigest.resources, selectionResult.decisions),
@@ -1285,6 +1295,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         filteredCandidateCount: selectionResult.qualifyingCandidateCount,
         selectedResourceCount: editorialDigest.resources.length,
         sourceResults,
+        droppedArtifacts,
+        pipelineCounts,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: previewResources(editorialDigest.resources, selectionResult.decisions),
@@ -1366,6 +1378,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedResourceCount: fallbackDigest.resources.length,
           fallbackReason,
           sourceResults,
+          droppedArtifacts,
+          pipelineCounts,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
           selectedPreview: previewResources(fallbackDigest.resources, selectionResult.decisions),
@@ -1424,6 +1438,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedResourceCount: 0,
           fallbackReason,
           sourceResults,
+          droppedArtifacts,
+          pipelineCounts,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
           selectedPreview: [],
@@ -1485,6 +1501,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
           selectedResourceCount: cachedDigestForResponse.resources.length,
           fallbackReason,
           sourceResults,
+          droppedArtifacts,
+          pipelineCounts,
           rejectedCandidates,
           candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
           selectedPreview: previewResources(cachedDigestForResponse.resources, selectionResult.decisions),
@@ -1541,6 +1559,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedResourceCount: 0,
         fallbackReason,
         sourceResults,
+        droppedArtifacts,
+        pipelineCounts,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: [],
@@ -1603,6 +1623,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedResourceCount: 0,
         fallbackReason,
         sourceResults,
+        droppedArtifacts,
+        pipelineCounts,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: [],
@@ -1664,6 +1686,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         selectedResourceCount: cachedDigestForResponse.resources.length,
         fallbackReason,
         sourceResults,
+        droppedArtifacts,
+        pipelineCounts,
         rejectedCandidates,
         candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
         selectedPreview: previewResources(cachedDigestForResponse.resources, selectionResult.decisions),
@@ -1721,6 +1745,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       selectedResourceCount: 0,
       fallbackReason,
       sourceResults,
+      droppedArtifacts,
+      pipelineCounts,
       rejectedCandidates,
       candidatesPreview: previewCandidates(candidatePool, selectionResult.decisions),
       selectedPreview: [],

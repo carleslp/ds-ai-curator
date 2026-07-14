@@ -33,9 +33,28 @@ export type SourceResult = {
   error: string | null;
 };
 
+export type DroppedCandidate = {
+  title: string;
+  url: string;
+  source: string;
+  reason: string;
+};
+
+// Full audit trail for the collection pipeline: raw parsed items across all
+// sources, before any filtering, down to the final capped candidate pool.
+export type PipelineCounts = {
+  rawCount: number;
+  dedupedCount: number;
+  plausibleCount: number;
+  englishAndRecentCount: number;
+  finalCount: number;
+};
+
 export type CandidateCollectionResult = {
   candidates: CandidateResource[];
   sourceResults: SourceResult[];
+  droppedArtifacts: DroppedCandidate[];
+  pipelineCounts: PipelineCounts;
 };
 
 type UnscoredCandidateResource = Omit<
@@ -540,6 +559,73 @@ function parseSourceItems(body: string, source: CuratedSource): UnscoredCandidat
   return parseHtmlItems(body, source);
 }
 
+// Documentation/nav pages get scraped as if every hyperlink were an article
+// (see parseHtmlItems). This rejects the resulting fragments structurally —
+// stray breadcrumb punctuation, paragraph-length "titles", and bare
+// site-chrome labels — instead of by topic keyword, so real short article
+// titles ("Design Tokens", "Accessibility Automation") are unaffected.
+const minPlausibleTitleLength = 6;
+const maxPlausibleTitleLength = 180;
+const navChromeLabels = new Set([
+  "docs",
+  "documentation",
+  "design systems",
+  "design system",
+  "enterprise",
+  "overview",
+  "guides",
+  "tutorials",
+  "resources",
+  "community",
+  "support",
+  "pricing",
+  "about",
+  "contact",
+  "home",
+  "blog",
+  "search",
+  "menu",
+  "navigation",
+  "get started",
+  "sign in",
+  "sign up",
+  "api",
+  "reference",
+  "examples",
+  "faq",
+  "help"
+]);
+
+function normalizeForChromeCheck(title: string): string {
+  return title.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+export function scrapingArtifactReason(title: string): string {
+  const trimmed = title.trim();
+
+  if (trimmed.replace(/[^a-z0-9]/gi, "").length === 0) {
+    return "Title has no alphanumeric content.";
+  }
+
+  if (/\.\s+\./.test(trimmed)) {
+    return "Title contains stray fragment punctuation (looks like a scraped nav/breadcrumb fragment).";
+  }
+
+  if (trimmed.length < minPlausibleTitleLength) {
+    return `Title is shorter than ${minPlausibleTitleLength} characters after trimming.`;
+  }
+
+  if (trimmed.length > maxPlausibleTitleLength) {
+    return `Title is longer than ${maxPlausibleTitleLength} characters; reads like scraped body text, not a headline.`;
+  }
+
+  if (navChromeLabels.has(normalizeForChromeCheck(trimmed))) {
+    return "Title exactly matches a known navigation/section label, not a distinct article title.";
+  }
+
+  return "";
+}
+
 function isProbablyEnglish(candidate: Pick<CandidateResource, "title" | "snippet">): boolean {
   const text = `${candidate.title} ${candidate.snippet}`;
   const asciiChars = text.replace(/[^\x00-\x7F]/g, "").length;
@@ -582,10 +668,28 @@ function dedupeCandidates<T extends Pick<CandidateResource, "url" | "title">>(ca
   return deduped;
 }
 
-function finalizeCandidates(candidates: UnscoredCandidateResource[]): CandidateResource[] {
-  return dedupeCandidates(candidates)
-    .filter(isProbablyEnglish)
-    .filter(isRecentEnough)
+function finalizeCandidates(candidates: UnscoredCandidateResource[]): {
+  candidates: CandidateResource[];
+  droppedArtifacts: DroppedCandidate[];
+  pipelineCounts: PipelineCounts;
+} {
+  const rawCount = candidates.length;
+  const deduped = dedupeCandidates(candidates);
+
+  const droppedArtifacts: DroppedCandidate[] = [];
+  const plausibleCandidates = deduped.filter((candidate) => {
+    const reason = scrapingArtifactReason(candidate.title);
+    if (!reason) {
+      return true;
+    }
+
+    droppedArtifacts.push({ title: candidate.title, url: candidate.url, source: candidate.source, reason });
+    return false;
+  });
+
+  const englishAndRecent = plausibleCandidates.filter(isProbablyEnglish).filter(isRecentEnough);
+
+  const finalized = englishAndRecent
     .map(scoreCandidate)
     .sort((a, b) => {
       const audienceDifference = b.readerValue + b.learningValue - (a.readerValue + a.learningValue);
@@ -604,6 +708,18 @@ function finalizeCandidates(candidates: UnscoredCandidateResource[]): CandidateR
       return a.sourceTier - b.sourceTier;
     })
     .slice(0, maxCandidates);
+
+  return {
+    candidates: finalized,
+    droppedArtifacts,
+    pipelineCounts: {
+      rawCount,
+      dedupedCount: deduped.length,
+      plausibleCount: plausibleCandidates.length,
+      englishAndRecentCount: englishAndRecent.length,
+      finalCount: finalized.length
+    }
+  };
 }
 
 export async function collectCandidatesWithDiagnostics(): Promise<CandidateCollectionResult> {
@@ -642,9 +758,26 @@ export async function collectCandidatesWithDiagnostics(): Promise<CandidateColle
     return [];
   });
 
+  const { candidates: finalCandidates, droppedArtifacts, pipelineCounts } = finalizeCandidates(candidates);
+
+  console.log(
+    `Collection pipeline: ${pipelineCounts.rawCount} raw -> ${pipelineCounts.dedupedCount} deduped -> ` +
+      `${pipelineCounts.plausibleCount} plausible (${droppedArtifacts.length} scraping artifact(s) dropped) -> ` +
+      `${pipelineCounts.englishAndRecentCount} English/recent -> ${pipelineCounts.finalCount} final (capped at ${maxCandidates}).`
+  );
+
+  if (droppedArtifacts.length > 0) {
+    console.log(`Dropped ${droppedArtifacts.length} scraping artifact(s) before candidate scoring:`);
+    for (const dropped of droppedArtifacts) {
+      console.log(`  - "${dropped.title}" (${dropped.source}): ${dropped.reason}`);
+    }
+  }
+
   return {
-    candidates: finalizeCandidates(candidates),
-    sourceResults
+    candidates: finalCandidates,
+    sourceResults,
+    droppedArtifacts,
+    pipelineCounts
   };
 }
 
