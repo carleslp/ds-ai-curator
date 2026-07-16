@@ -331,9 +331,14 @@ function enrichResources(
         ? publicationSafeText(truncateText(briefSummary || resource.cleanSummary || resource.summary, 280))
         : truncateText(resource.cleanSummary ?? resource.summary, 280),
       summary: contractMode ? publicationSafeText(truncateText(briefSummary || resource.summary, 280)) : truncateText(resource.summary, 280),
-      why_it_matters_to_our_team: evidenceMapping
-        ? publicationSafeText(truncateText(`${evidenceMapping.evidentialRole}. ${brief?.consequences.immediate}`, 220))
-        : whyItMatters(resource, areas, index, contractMode),
+      // whyItMatters must say why THIS artifact matters, not restate the
+      // week's thesis. brief?.consequences.immediate is a single field on
+      // the shared EditorialBrief — every resource that had an evidenceMapping
+      // entry used to get the exact same sentence here, and evidentialRole
+      // only has 4 possible values, so the prefix collided too. whyItMatters()
+      // below is already per-resource (resource's own signal + index-varied
+      // template); route every resource through it instead.
+      why_it_matters_to_our_team: whyItMatters(resource, areas, index, contractMode),
       why_selected: resource.why_selected ?? (contractMode ? selectedReason(resource, areas) : legacySelectedReason(resource, areas)),
       expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas, deliberation, narrative, brief),
       who_should_read: resource.who_should_read ?? audienceFor(resource, areas),
