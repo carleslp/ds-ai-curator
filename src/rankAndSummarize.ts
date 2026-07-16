@@ -372,6 +372,30 @@ function jsonSchema() {
   };
 }
 
+// Gemini's responseSchema is the OpenAPI 3.0 Schema subset, not raw JSON
+// Schema: "type" values are uppercase enum names and "additionalProperties"
+// isn't part of the dialect. Derive it from jsonSchema() so OpenAI and Gemini
+// stay constrained by the same field list instead of two hand-maintained copies.
+function toGeminiSchema(node: Record<string, unknown>): Record<string, unknown> {
+  const { additionalProperties: _additionalProperties, ...rest } = node;
+  const converted: Record<string, unknown> = { ...rest };
+  if (typeof converted.type === "string") {
+    converted.type = converted.type.toUpperCase();
+  }
+  if (converted.properties && typeof converted.properties === "object") {
+    converted.properties = Object.fromEntries(
+      Object.entries(converted.properties as Record<string, Record<string, unknown>>).map(([key, value]) => [
+        key,
+        toGeminiSchema(value)
+      ])
+    );
+  }
+  if (converted.items && typeof converted.items === "object") {
+    converted.items = toGeminiSchema(converted.items as Record<string, unknown>);
+  }
+  return converted;
+}
+
 function toPublicDigest(rankedDigest: RankedDigest): Digest {
   return withEditorialSections({
     date: rankedDigest.date,
@@ -500,7 +524,10 @@ export async function rankAndSummarizeWithGemini(candidates: CandidateResource[]
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: buildPrompt(candidates) }] }],
-        generationConfig: { responseMimeType: "application/json" }
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: toGeminiSchema(jsonSchema())
+        }
       })
     }
   );
