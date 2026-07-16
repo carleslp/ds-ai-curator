@@ -222,11 +222,22 @@ function buildEditorialDeliberation(contexts: EditorialContexts, resources: Reso
   };
 }
 
+// brief?.consequences.immediate is a single field shared by every resource in
+// the digest. A resource's own why_it_matters_to_our_team should only be
+// trusted when it isn't just that shared sentence restated (the PR-16 bug).
+function restatesSharedThesis(value: string, brief?: EditorialBrief): boolean {
+  const thesisText = cleanText(brief?.consequences.immediate || "");
+  if (!thesisText) return false;
+  return cleanText(value).toLowerCase().includes(thesisText.toLowerCase());
+}
+
 function whyItMatters(resource: Resource, areas: string[], index: number, contractMode: boolean): string {
-  const signal = truncateText(
-    resource.directDesignSystemEvidence || resource.design_system_angle || resource.cleanSummary || resource.summary,
-    120
-  );
+  // directDesignSystemEvidence is internal matching-rule text from
+  // collectCandidates.ts's evidenceSentence() — e.g. "Storybook workflow
+  // anchor: storybook evidence in title/snippet. ...". It must never reach
+  // reader copy, so it's deliberately excluded here even though it's the
+  // richest field on the resource.
+  const signal = truncateText(resource.design_system_angle || resource.cleanSummary || resource.summary, 120);
   const areaPhrase = workflowPhrase(areas);
   if (!contractMode) {
     const legacyPatterns = [
@@ -331,14 +342,15 @@ function enrichResources(
         ? publicationSafeText(truncateText(briefSummary || resource.cleanSummary || resource.summary, 280))
         : truncateText(resource.cleanSummary ?? resource.summary, 280),
       summary: contractMode ? publicationSafeText(truncateText(briefSummary || resource.summary, 280)) : truncateText(resource.summary, 280),
-      // whyItMatters must say why THIS artifact matters, not restate the
-      // week's thesis. brief?.consequences.immediate is a single field on
-      // the shared EditorialBrief — every resource that had an evidenceMapping
-      // entry used to get the exact same sentence here, and evidentialRole
-      // only has 4 possible values, so the prefix collided too. whyItMatters()
-      // below is already per-resource (resource's own signal + index-varied
-      // template); route every resource through it instead.
-      why_it_matters_to_our_team: whyItMatters(resource, areas, index, contractMode),
+      // Prefer the resource's own why_it_matters_to_our_team, same as
+      // why_selected/expected_impact_on_workflow/ignore_risk below — but only
+      // when it isn't just the shared week's thesis restated (the original
+      // bug). whyItMatters() is the per-resource fallback: the resource's own
+      // signal, index-varied template.
+      why_it_matters_to_our_team:
+        resource.why_it_matters_to_our_team && !restatesSharedThesis(resource.why_it_matters_to_our_team, brief)
+          ? resource.why_it_matters_to_our_team
+          : whyItMatters(resource, areas, index, contractMode),
       why_selected: resource.why_selected ?? (contractMode ? selectedReason(resource, areas) : legacySelectedReason(resource, areas)),
       expected_impact_on_workflow: resource.expected_impact_on_workflow ?? expectedImpact(resource, areas, deliberation, narrative, brief),
       who_should_read: resource.who_should_read ?? audienceFor(resource, areas),

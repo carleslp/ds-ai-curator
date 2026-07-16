@@ -12,6 +12,7 @@
     "test:ledger": "npm run build && node dist/src/testThesisLedger.js",
     "test:selection": "npm run build && node dist/src/testEditorialSelection.js",
     "test:collect": "npm run build && node dist/src/testCollectCandidates.js",
+    "test:contracts": "npm run build && node dist/src/testEditorialContracts.js",
     "start": "node dist/src/server.js",
     "start:server": "node dist/src/server.js"
   },

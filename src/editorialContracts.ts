@@ -98,7 +98,18 @@ const bannedTerms = [
   "connected to the evidence set",
   "primaryrole",
   "qualified by",
-  "strongest teaching artifact"
+  "strongest teaching artifact",
+  // collectCandidates.ts's evidenceSentence() shape: "${label}: ${terms}
+  // evidence in title/snippet. ${sourceText}". whyItMatters() used to embed
+  // resource.directDesignSystemEvidence directly into reader copy (PR-16),
+  // e.g. "Direct Design System anchor: design system signal in title/snippet."
+  // "evidence" alone is already banned above, but that only catches the
+  // pre-publicationSafeText version — publicationSafeText launders the word
+  // "evidence" to "signal" before this check ever runs, so the surrounding
+  // machinery ("anchor:", "in title/snippet") needs its own entries.
+  "anchor:",
+  "in title/snippet",
+  "evidence in title/snippet"
 ];
 
 const stopWords = new Set([
