@@ -756,12 +756,23 @@ export async function collectCandidatesWithDiagnostics(): Promise<CandidateColle
 
     if (result.status === "fulfilled") {
       const candidatesFound = result.value.candidates.length;
-      console.log(`Candidate source fetched: ${source.name} (${candidatesFound} candidates).`);
+      // A successful HTTP fetch that extracts nothing is not a success — it's
+      // silent dead weight (e.g. a client-rendered SPA with no static <a>
+      // tags to scrape, or a page whose markup no longer matches the parser).
+      const success = candidatesFound > 0;
+      const zeroItemsReason = "0 items extracted (page returned successfully but no parseable candidates were found)";
+
+      if (success) {
+        console.log(`Candidate source fetched: ${source.name} (${candidatesFound} candidates).`);
+      } else {
+        console.warn(`Candidate source returned zero items: ${source.name} - ${zeroItemsReason}`);
+      }
+
       sourceResults.push({
         source: source.name,
-        success: true,
+        success,
         candidatesFound,
-        error: null
+        error: success ? null : zeroItemsReason
       });
       return result.value.candidates;
     }
