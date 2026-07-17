@@ -53,7 +53,20 @@ const RankedResourceSchema = z.object({
   expected_impact_on_workflow: z.string().min(1).max(350),
   who_should_read: z.string().min(1).max(100),
   estimated_reading_time: z.string().min(1).max(20),
-  ignore_risk: z.string().min(1).max(350),
+  // Same reasoning as why_it_matters_to_our_team above (PR-20a) — this max IS
+  // the render budget, not a generous backstop — but this box's CSS never got
+  // brought down to match when why_it_matters was fixed (PR-21). Its box
+  // (renderResourceCard's ignore_risk div) has no extra padding/border of its
+  // own, so it gets the full ~510px card interior width (unlike
+  // why_it_matters's 483px), at font-size 11px, line-height 1.55, and only
+  // -webkit-line-clamp:2 (max-height:35px = 2 lines, not 3). ~5.7px/char for
+  // the font stack -> ~89 chars/line; line 1 loses ~57px to the bold "If we
+  // ignore this:" label (18 chars bold) + a space, leaving ~67 chars. Total
+  // capacity: 67 + 89 = 156 chars. All 3 cards on a live run measured 157-173
+  // chars and all three clipped onto a hidden 3rd line. 130 leaves margin for
+  // the estimate's uncertainty, same as why_it_matters's ~14% margin below
+  // its calculated capacity.
+  ignore_risk: z.string().min(1).max(130),
   impact_score: z.number().min(1).max(5),
   affected_workflow_areas: z
     .array(
@@ -122,7 +135,7 @@ characters including spaces and punctuation.
 - expected_impact_on_workflow: name the behavior, artifact, or review habit likely to change. Name ONE specific change, not a list of examples. Target 180 characters, absolute max 350.
 - who_should_read: a slash-separated combination drawn from Designer, Frontend DS Engineer, AI Engineer, DesignOps. Target 30 characters, absolute max 100.
 - estimated_reading_time: Target 5 characters, absolute max 20.
-- ignore_risk: begin with the consequence of ignoring the topic, then explain the operational cost. Name ONE specific consequence, not a list. Do not write open-ended enumerations like "leading to X, Y, and Z" — naming a growing list is what causes a field to run long and trail off unfinished. Pick the single most important consequence, state it, and stop. Target 180 characters, absolute max 350.
+- ignore_risk: begin with the consequence of ignoring the topic, then explain the operational cost. Name ONE specific consequence, not a list. Do not write open-ended enumerations like "leading to X, Y, and Z" — naming a growing list is what causes a field to run long and trail off unfinished. Pick the single most important consequence, state it, and stop. This field renders in a small fixed-height box with no room to overflow — target 50 characters, absolute max 130. Going over the max is rejected, not trimmed to fit, so stay well under it.
 - directDesignSystemEvidence: Target 300 characters, absolute max 700.
 `;
 
