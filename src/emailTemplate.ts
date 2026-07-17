@@ -28,6 +28,14 @@ export type Resource = {
   relevance_score?: number;
   worth_your_time_score?: number;
   actionabilityScore?: number;
+  // Set by candidateToResource() (digestService.ts) — true for a resource
+  // built straight from a candidate with zero LLM involvement (PR-25). Its
+  // why_it_matters_to_our_team/expected_impact_on_workflow/ignore_risk are
+  // fixed deterministic strings with no real per-article content behind
+  // them, so editorialWritingLayer.ts's sanitizeResource() skips attempting
+  // to "regenerate" them — there is nothing to regenerate from, and the
+  // attempt was landing back on the same generic text anyway.
+  isDeterministicFallback?: boolean;
 };
 
 export type Digest = {

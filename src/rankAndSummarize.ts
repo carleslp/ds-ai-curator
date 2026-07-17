@@ -101,6 +101,54 @@ const RankedDigestSchema = z.object({
 });
 
 type RankedDigest = z.infer<typeof RankedDigestSchema>;
+type RankedResource = RankedDigest["resources"][number];
+
+// Fields where a length/format violation on ONE resource can be safely
+// repaired by dropping just that field and letting editorial.ts's existing
+// `resource.field ?? fallback()` per-article-aware generators (already used
+// for every real resource today) supply a substitute — instead of failing
+// RankedDigestSchema.parse() for the whole response over one field on one
+// resource (PR-25). Deliberately excludes structural/identity fields (title,
+// url, type, relevance_score, worth_your_time_score, affected_workflow_areas,
+// directDesignSystemEvidence, design_system_angle, summary) and anything used
+// in unguarded template-literal interpolation elsewhere (resourceText() in
+// editorial.ts) — a violation on those means the resource itself is
+// untrustworthy, not just one field, so it gets dropped instead (see
+// repairResourcesIndividually).
+const safeOmitFields = [
+  "why_it_matters_to_our_team",
+  "why_selected",
+  "expected_impact_on_workflow",
+  "who_should_read",
+  "estimated_reading_time",
+  "ignore_risk",
+  "impact_score",
+  "published_date"
+] as const;
+type SafeOmitField = (typeof safeOmitFields)[number];
+const safeOmitFieldSet: ReadonlySet<string> = new Set(safeOmitFields);
+
+// A resource that survived per-field repair: every field RankedResourceSchema
+// requires, except the safe-omit fields above may be missing (deleted, not
+// merely empty) when that specific field is what failed validation.
+type RepairedRankedResource = Omit<RankedResource, SafeOmitField> & Partial<Pick<RankedResource, SafeOmitField>>;
+type RepairedRankedDigest = Omit<RankedDigest, "resources"> & { resources: RepairedRankedResource[] };
+
+const TopLevelDigestSchema = RankedDigestSchema.omit({ resources: true });
+
+export type ResourceFieldRepair = {
+  index: number;
+  title: string;
+  url: string;
+  repairedFields: string[];
+};
+
+export type ResourceDrop = {
+  index: number;
+  title: string | null;
+  url: string | null;
+  reason: string;
+};
 
 const openAIModel = process.env.OPENAI_MODEL ?? "gpt-5.5";
 const geminiModel = "gemini-2.5-flash";
@@ -452,7 +500,18 @@ function toGeminiSchema(node: Record<string, unknown>): Record<string, unknown> 
   return converted;
 }
 
-function toPublicDigest(rankedDigest: RankedDigest): Digest {
+// cleanText(undefined) returns "" — safe for most fields, but wrong for the
+// fields editorial.ts falls back on with `resource.field ?? fallback()`
+// (why_selected, expected_impact_on_workflow, ignore_risk, impact_score):
+// "" is not null/undefined, so `??` would ship the empty string instead of
+// running the fallback. When a per-resource repair (PR-25) has deleted one
+// of these fields, this must pass undefined through untouched so that
+// guard still fires and a real per-article fallback gets generated.
+function cleanOptionalText(value: string | undefined): string | undefined {
+  return value !== undefined ? cleanText(value) : undefined;
+}
+
+function toPublicDigest(rankedDigest: RepairedRankedDigest): Digest {
   return withEditorialSections({
     date: rankedDigest.date,
     trend_summary: rankedDigest.trend_summary,
@@ -472,12 +531,12 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       summary: cleanText(resource.summary),
       cleanSummary: cleanText(resource.summary),
       design_system_angle: cleanText(resource.design_system_angle),
-      why_it_matters_to_our_team: cleanText(resource.why_it_matters_to_our_team),
-      why_selected: cleanText(resource.why_selected),
-      expected_impact_on_workflow: cleanText(resource.expected_impact_on_workflow),
+      why_it_matters_to_our_team: cleanOptionalText(resource.why_it_matters_to_our_team),
+      why_selected: cleanOptionalText(resource.why_selected),
+      expected_impact_on_workflow: cleanOptionalText(resource.expected_impact_on_workflow),
       who_should_read: resource.who_should_read,
       estimated_reading_time: resource.estimated_reading_time,
-      ignore_risk: cleanText(resource.ignore_risk),
+      ignore_risk: cleanOptionalText(resource.ignore_risk),
       impact_score: resource.impact_score,
       affected_workflow_areas: resource.affected_workflow_areas,
       directDesignSystemEvidence: resource.directDesignSystemEvidence,
@@ -488,7 +547,7 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
   });
 }
 
-function assertSelectedFromCandidates(resources: RankedDigest["resources"], candidates: CandidateResource[]) {
+function assertSelectedFromCandidates(resources: RepairedRankedResource[], candidates: CandidateResource[]) {
   const urls = new Set(candidates.map((candidate) => candidate.url));
   const invalid = resources.filter((resource) => !urls.has(resource.url));
   const normalizedTitles = resources.map((resource) => resource.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
@@ -592,22 +651,155 @@ function schemaValidationDetailFor(rawParsed: unknown, zodError: z.ZodError): Sc
   });
 }
 
-// Parses rawParsed against RankedDigestSchema. On failure, logs the raw
-// failing value/length/source for every offending field (console.error, so
-// it reaches Vercel's function logs — the sole line item the investigation
-// this PR follows from found nothing retained for) and attaches the same
-// detail to the re-thrown error's schemaValidationDetail property, following
-// the same attach-to-error pattern digestService.ts already uses for
-// providerAttempts/providerFailures. digestService.ts's catch block reads
-// this off the error and threads it into providerFailures, which
-// /api/debug-digest already surfaces — the actually-retrievable route.
-function parseRankedDigest(rawParsed: unknown, provider: ProviderName): RankedDigest {
+// Attempts to salvage a RankedDigestSchema failure per-resource instead of
+// discarding the whole response (PR-25). Returns null when repair can't help
+// at all — a violation on a TOP-LEVEL field (not resources.N.X) means the
+// digest itself is broken, not one card, and no per-resource logic fixes
+// that; full fallback is the correct outcome there, same as before this PR.
+// Otherwise, every resource is judged independently: clean resources are
+// kept as-is (their real Gemini content untouched), a resource whose only
+// violations are on safeOmitFields gets just those fields deleted (letting
+// editorial.ts's existing per-article fallback generators fill them in), and
+// a resource with any other violation is dropped entirely (its structural
+// fields can't be trusted, so there's nothing safe to keep).
+function repairResourcesIndividually(
+  rawParsed: unknown,
+  zodError: z.ZodError
+): { repairedResources: RepairedRankedResource[]; resourceRepairs: ResourceFieldRepair[]; resourceDrops: ResourceDrop[] } | null {
+  const hasNonResourceIssue = zodError.issues.some((issue) => issue.path[0] !== "resources");
+  if (hasNonResourceIssue) return null;
+
+  const rawResources = Array.isArray((rawParsed as { resources?: unknown[] } | null)?.resources)
+    ? (rawParsed as { resources: unknown[] }).resources
+    : [];
+
+  const issuesByIndex = new Map<number, z.ZodIssue[]>();
+  for (const issue of zodError.issues) {
+    const index = issue.path[1];
+    if (typeof index === "number") {
+      const list = issuesByIndex.get(index) ?? [];
+      list.push(issue);
+      issuesByIndex.set(index, list);
+    }
+  }
+
+  const repairedResources: RepairedRankedResource[] = [];
+  const resourceRepairs: ResourceFieldRepair[] = [];
+  const resourceDrops: ResourceDrop[] = [];
+
+  rawResources.forEach((rawResource, index) => {
+    const record = rawResource as Record<string, unknown>;
+    const titleGuess = typeof record?.title === "string" ? record.title : null;
+    const urlGuess = typeof record?.url === "string" ? record.url : null;
+    const issues = issuesByIndex.get(index);
+
+    if (!issues || issues.length === 0) {
+      // Zod attributed no issue to this index, but confirm independently
+      // rather than assume — cheap, and guards against a path-parsing edge
+      // case silently smuggling a bad resource through.
+      const check = RankedResourceSchema.safeParse(rawResource);
+      if (check.success) {
+        repairedResources.push(check.data);
+      } else {
+        resourceDrops.push({
+          index,
+          title: titleGuess,
+          url: urlGuess,
+          reason: `Failed independent validation despite no top-level issue attribution: ${check.error.issues.map((issue) => issue.path.join(".")).join(", ")}.`
+        });
+      }
+      return;
+    }
+
+    const unsafeIssue = issues.find((issue) => {
+      const field = issue.path[2];
+      return typeof field !== "string" || !safeOmitFieldSet.has(field);
+    });
+
+    if (unsafeIssue) {
+      resourceDrops.push({
+        index,
+        title: titleGuess,
+        url: urlGuess,
+        reason: `Field "${unsafeIssue.path.slice(2).join(".")}" failed validation (${unsafeIssue.code}) and is not safely omittable — dropping the resource rather than trusting the rest of it.`
+      });
+      return;
+    }
+
+    // Every violation on this resource is on a safe-omit field. Every OTHER
+    // field already independently satisfied RankedResourceSchema (zod
+    // reports every violation in one pass on a flat object schema like this
+    // one — a field absent from `issues` already passed), so there is
+    // nothing left to re-validate; just remove the offending field(s).
+    const offendingFields = Array.from(new Set(issues.map((issue) => issue.path[2] as string)));
+    const repaired = { ...record };
+    for (const field of offendingFields) {
+      delete repaired[field];
+    }
+
+    resourceRepairs.push({
+      index,
+      title: titleGuess ?? "(untitled)",
+      url: urlGuess ?? "(no url)",
+      repairedFields: offendingFields
+    });
+    repairedResources.push(repaired as RepairedRankedResource);
+  });
+
+  return { repairedResources, resourceRepairs, resourceDrops };
+}
+
+export type ParsedRankedDigest = {
+  rankedDigest: RepairedRankedDigest;
+  resourceRepairs: ResourceFieldRepair[];
+  resourceDrops: ResourceDrop[];
+};
+
+// Parses rawParsed against RankedDigestSchema. On failure, first tries
+// per-resource repair (PR-25) so one field's length violation on one
+// resource doesn't discard the other resources' real, valid Gemini output.
+// Only when repair isn't possible (a top-level field is broken, or every
+// resource was unsalvageable) does this fall through to the original PR-24
+// behavior: log the raw failing value/length/source for every offending
+// field (console.error, so it reaches Vercel's function logs — the sole line
+// item the investigation this PR follows from found nothing retained for)
+// and attach the same detail to the re-thrown error's schemaValidationDetail
+// property, following the same attach-to-error pattern digestService.ts
+// already uses for providerAttempts/providerFailures. digestService.ts's
+// catch block reads this off the error and threads it into providerFailures,
+// which /api/debug-digest already surfaces — the actually-retrievable route.
+function parseRankedDigest(rawParsed: unknown, provider: ProviderName): ParsedRankedDigest {
   const result = RankedDigestSchema.safeParse(rawParsed);
-  if (result.success) return result.data;
+  if (result.success) {
+    return { rankedDigest: result.data, resourceRepairs: [], resourceDrops: [] };
+  }
+
+  const repair = repairResourcesIndividually(rawParsed, result.error);
+  if (repair && repair.repairedResources.length > 0) {
+    console.warn(
+      `${provider} response had a field-level schema violation on ${repair.resourceRepairs.length + repair.resourceDrops.length} ` +
+        `of ${repair.repairedResources.length + repair.resourceDrops.length} resource(s) — repairing individually instead of ` +
+        `discarding the whole response (PR-25):\n` +
+        [
+          ...repair.resourceRepairs.map(
+            (item) => `  repaired: "${item.title}" (${item.url}) — fell back only on: ${item.repairedFields.join(", ")}`
+          ),
+          ...repair.resourceDrops.map((item) => `  dropped: "${item.title ?? "unknown"}" (${item.url ?? "no url"}) — ${item.reason}`)
+        ].join("\n")
+    );
+
+    const topLevel = TopLevelDigestSchema.parse(rawParsed);
+    return {
+      rankedDigest: { ...topLevel, resources: repair.repairedResources },
+      resourceRepairs: repair.resourceRepairs,
+      resourceDrops: repair.resourceDrops
+    };
+  }
 
   const detail = schemaValidationDetailFor(rawParsed, result.error);
   console.error(
-    `${provider} response failed RankedDigestSchema validation (${detail.length} issue(s)):\n` +
+    `${provider} response failed RankedDigestSchema validation (${detail.length} issue(s)), and per-resource repair could not ` +
+      `salvage any resource (${repair === null ? "a top-level field failed" : "every resource had an unsafe-field violation"}):\n` +
       detail
         .map(
           (item) =>
@@ -623,7 +815,13 @@ function parseRankedDigest(rawParsed: unknown, provider: ProviderName): RankedDi
   throw error;
 }
 
-export async function rankAndSummarizeWithOpenAI(candidates: CandidateResource[]): Promise<Digest> {
+export type RankAndSummarizeResult = {
+  digest: Digest;
+  resourceRepairs: ResourceFieldRepair[];
+  resourceDrops: ResourceDrop[];
+};
+
+export async function rankAndSummarizeWithOpenAI(candidates: CandidateResource[]): Promise<RankAndSummarizeResult> {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -644,12 +842,12 @@ export async function rankAndSummarizeWithOpenAI(candidates: CandidateResource[]
     }
   });
 
-  const rankedDigest = parseRankedDigest(JSON.parse(response.output_text), "openAI");
+  const { rankedDigest, resourceRepairs, resourceDrops } = parseRankedDigest(JSON.parse(response.output_text), "openAI");
   assertSelectedFromCandidates(rankedDigest.resources, candidates);
-  return toPublicDigest(rankedDigest);
+  return { digest: toPublicDigest(rankedDigest), resourceRepairs, resourceDrops };
 }
 
-export async function rankAndSummarizeWithGemini(candidates: CandidateResource[]): Promise<Digest> {
+export async function rankAndSummarizeWithGemini(candidates: CandidateResource[]): Promise<RankAndSummarizeResult> {
   const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -682,7 +880,7 @@ export async function rankAndSummarizeWithGemini(candidates: CandidateResource[]
     throw new Error("Gemini response did not include text.");
   }
 
-  const rankedDigest = parseRankedDigest(JSON.parse(text), "gemini");
+  const { rankedDigest, resourceRepairs, resourceDrops } = parseRankedDigest(JSON.parse(text), "gemini");
   assertSelectedFromCandidates(rankedDigest.resources, candidates);
-  return toPublicDigest(rankedDigest);
+  return { digest: toPublicDigest(rankedDigest), resourceRepairs, resourceDrops };
 }

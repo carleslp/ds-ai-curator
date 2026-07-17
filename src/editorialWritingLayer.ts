@@ -528,6 +528,29 @@ export function writeWatchlistSection(context: HorizonContext): string[] {
 
 function sanitizeResource(resource: Resource): Resource {
   const title = cleanResourceTitle(resource.title);
+
+  // A pure-fallback resource (candidateToResource(), PR-25) has zero LLM
+  // content behind why_it_matters_to_our_team/expected_impact_on_workflow/
+  // ignore_risk — they're fixed deterministic strings already. Running them
+  // through safeReaderCopy's regeneration check fires without helping:
+  // there's nothing real to regenerate FROM, and it was landing back on the
+  // same generic string regardless. Pass the intended fallback text through
+  // as-is instead of attempting to "fix" it.
+  if (resource.isDeterministicFallback) {
+    const fallbackSummary = cleanText(resource.cleanSummary || resource.summary);
+    return {
+      ...resource,
+      title,
+      editorialTitle: undefined,
+      cleanSummary: fallbackSummary,
+      summary: fallbackSummary,
+      why_selected: undefined,
+      expected_impact_on_workflow: cleanText(resource.expected_impact_on_workflow ?? ""),
+      why_it_matters_to_our_team: cleanText(resource.why_it_matters_to_our_team ?? ""),
+      ignore_risk: cleanText(resource.ignore_risk ?? "")
+    };
+  }
+
   const summary = safeReaderCopy(resource.cleanSummary || resource.summary, fallbackSummaryFor({ ...resource, title }));
   let whyItMatters = safeReaderCopy(resource.why_it_matters_to_our_team, fallbackWhyItMattersFor({ ...resource, title }));
   const impact = safeReaderCopy(resource.expected_impact_on_workflow, fallbackImpactFor({ ...resource, title }));
@@ -622,8 +645,15 @@ function validateResourceCardIntegrity(cards: Resource[], beforeCards: Resource[
     const impactTerms = bannedTermsInReaderText(card.expected_impact_on_workflow || "");
     const overlap = textOverlap(card.cleanSummary || card.summary, card.why_it_matters_to_our_team || "");
 
-    if (cleanText(beforeText) !== cleanText(afterText)) sanitizedCards.push(card.title);
-    if (bannedTermsInReaderText(beforeText).length > 0 || overlap >= 0.58) regeneratedCards.push(card.title);
+    // A pure-fallback card (isDeterministicFallback, PR-25) has no real
+    // per-article content to sanitize or regenerate — sanitizeResource()
+    // already skips it, so labeling it "sanitized"/"regenerated" here would
+    // be reporting an attempt that never happened on content that was never
+    // going to change.
+    if (!card.isDeterministicFallback) {
+      if (cleanText(beforeText) !== cleanText(afterText)) sanitizedCards.push(card.title);
+      if (bannedTermsInReaderText(beforeText).length > 0 || overlap >= 0.58) regeneratedCards.push(card.title);
+    }
 
     return {
       title: card.title,

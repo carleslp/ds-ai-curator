@@ -53,6 +53,8 @@ import {
   rankAndSummarizeWithGemini,
   rankAndSummarizeWithOpenAI,
   type ProviderName,
+  type ResourceDrop,
+  type ResourceFieldRepair,
   type SchemaValidationFailureDetail
 } from "./rankAndSummarize.js";
 import {
@@ -197,6 +199,12 @@ type DailyDigestResult = {
   degraded: boolean;
   degradedReason: string;
   fallbackSectionsApplied: string[];
+  // PR-25: resources repaired/dropped individually so one field's schema
+  // violation on one resource doesn't take the other resources down with it.
+  // Empty on every run that didn't need this — non-empty is itself the
+  // visible signal that a run shipped with partial, not fully-live, content.
+  resourceRepairs: ResourceFieldRepair[];
+  resourceDrops: ResourceDrop[];
   thesisEngineEnabled: boolean;
   thesisLedgerEnabled: boolean;
   thesisLedgerEntryCount: number;
@@ -481,7 +489,8 @@ function candidateToResource(candidate: CandidateResource): Resource {
     directDesignSystemEvidence: candidate.directDesignSystemEvidence,
     is_real_source: true,
     relevance_score: candidate.relevanceScore,
-    worth_your_time_score: candidate.worthYourTimeScore
+    worth_your_time_score: candidate.worthYourTimeScore,
+    isDeterministicFallback: true
   };
 }
 
@@ -874,6 +883,8 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
   providerAttempts: ProviderAttempt[];
   providerFailures: ProviderFailure[];
   synthesisMode: SynthesisMode;
+  resourceRepairs: ResourceFieldRepair[];
+  resourceDrops: ResourceDrop[];
 }> {
   const hasOpenAI = Boolean(process.env.OPENAI_API_KEY);
   const hasGemini = Boolean(process.env.GEMINI_API_KEY);
@@ -899,14 +910,16 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
   if (hasOpenAI) {
     try {
       console.log("LLM ranking provider: OpenAI.");
-      const digest = await rankAndSummarizeWithOpenAI(filteredCandidates);
+      const result = await rankAndSummarizeWithOpenAI(filteredCandidates);
       providerAttempts.push({ provider: "openAI", status: "success" });
       return {
-        digest,
+        digest: result.digest,
         provider: "openAI",
         providerAttempts,
         providerFailures,
-        synthesisMode: providerFailures.length > 0 ? "providerFallback" : "live"
+        synthesisMode: providerFailures.length > 0 ? "providerFallback" : "live",
+        resourceRepairs: result.resourceRepairs,
+        resourceDrops: result.resourceDrops
       };
     } catch (error) {
       lastError = error;
@@ -923,14 +936,16 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
   if (hasGemini) {
     try {
       console.log("LLM ranking provider: Gemini.");
-      const digest = await rankAndSummarizeWithGemini(filteredCandidates);
+      const result = await rankAndSummarizeWithGemini(filteredCandidates);
       providerAttempts.push({ provider: "gemini", status: "success" });
       return {
-        digest,
+        digest: result.digest,
         provider: "gemini",
         providerAttempts,
         providerFailures,
-        synthesisMode: providerFailures.length > 0 ? "providerFallback" : "live"
+        synthesisMode: providerFailures.length > 0 ? "providerFallback" : "live",
+        resourceRepairs: result.resourceRepairs,
+        resourceDrops: result.resourceDrops
       };
     } catch (error) {
       lastError = error;
@@ -1001,6 +1016,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
   let providerFailures: ProviderFailure[] = [];
   let providerUsed: ProviderName | null = null;
   let synthesisMode: SynthesisMode = usableProviderCount > 0 ? "live" : "candidateFallback";
+  let resourceRepairs: ResourceFieldRepair[] = [];
+  let resourceDrops: ResourceDrop[] = [];
   const synthesisDebug = (
     degraded: boolean,
     degradedReason = "",
@@ -1016,6 +1033,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     | "degraded"
     | "degradedReason"
     | "fallbackSectionsApplied"
+    | "resourceRepairs"
+    | "resourceDrops"
   > => ({
     usableProviderCount,
     providerWarning,
@@ -1025,7 +1044,9 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
     synthesisMode,
     degraded,
     degradedReason,
-    fallbackSectionsApplied
+    fallbackSectionsApplied,
+    resourceRepairs,
+    resourceDrops
   });
 
   console.log(`Provider config: OPENAI_API_KEY exists? ${hasOpenAIKey}`);
@@ -1201,6 +1222,8 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
       providerFailures = ranked.providerFailures;
       providerUsed = ranked.provider;
       synthesisMode = ranked.synthesisMode;
+      resourceRepairs = ranked.resourceRepairs;
+      resourceDrops = ranked.resourceDrops;
       const editorialAssembly = applyRepresentativeRenderingAssembly(
         applyWorkflowImpactEditorsPick(withEditorialSections(ranked.digest), selectionResult),
         selectionResult,
@@ -1269,12 +1292,22 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         }
       }
 
+      // A per-resource repair/drop (PR-25) means this run shipped with some
+      // deterministic-fallback content mixed into otherwise-live output —
+      // real, but not fully live. degraded/degradedReason must say so rather
+      // than reporting a clean success indistinguishable from a run where
+      // every resource validated on the first try.
+      const hadPartialRepair = resourceRepairs.length > 0 || resourceDrops.length > 0;
+      const partialRepairReason = hadPartialRepair
+        ? `${resourceRepairs.length} resource(s) had a field-level schema violation repaired individually; ${resourceDrops.length} resource(s) dropped. See resourceRepairs/resourceDrops.`
+        : "";
+
       return {
         digest: editorialDigest,
         mode: ranked.provider === "openAI" ? "liveOpenAI" : "liveGemini",
         hasOpenAIKey,
         hasGeminiKey,
-        ...synthesisDebug(false),
+        ...synthesisDebug(hadPartialRepair, partialRepairReason),
         thesisEngineEnabled,
         thesisLedgerEnabled,
         thesisLedgerEntryCount: liveLedgerPreview.totalEntries,
