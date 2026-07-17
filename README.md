@@ -62,9 +62,15 @@ npm start
     "date": "2026-06-25",
     "trend_summary": "...",
     "resources": []
-  }
+  },
+  "debug": { "...": "same shape as the Debug Contract below" }
 }
 ```
+
+`debug` is always present (no `NODE_ENV` gating) and is exactly the same object
+`/api/debug-digest` returns at its top level — see below. This exists so the
+response Make.com (or any other consumer) actually receives can be inspected
+without a second request.
 
 Each resource includes:
 
@@ -83,7 +89,14 @@ Each resource includes:
 
 ## Debug Contract
 
-`GET /api/debug-digest` returns pipeline state without rendering HTML:
+`GET /api/debug-digest` returns pipeline state without rendering HTML. The
+field list is large (~85 fields covering candidate collection, ranking,
+editorial selection, section-contract validation, and per-resource
+repair/drop detail) and changes as the pipeline grows, so it is intentionally
+not duplicated here — the source of truth is `buildDebugResponse()` in
+[src/digestResponse.ts](src/digestResponse.ts), the single function all three
+route implementations (`src/server.ts`, `api/debug-digest.ts`,
+`api/daily-digest.ts`) call to build it. A representative subset:
 
 ```json
 {
@@ -93,8 +106,8 @@ Each resource includes:
   "candidateCount": 30,
   "filteredCandidateCount": 12,
   "selectedResourceCount": 5,
-  "resourceCount": 5,
-  "fallbackReason": "",
+  "resourceRepairs": [],
+  "resourceDrops": [],
   "sourceResults": [
     {
       "source": "Figma Blog",

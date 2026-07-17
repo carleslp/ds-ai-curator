@@ -185,7 +185,7 @@ type SelectedPreview = {
   directDesignSystemEvidence: string;
 };
 
-type DailyDigestResult = {
+export type DailyDigestResult = {
   digest: Digest;
   mode: DigestMode;
   hasOpenAIKey: boolean;
