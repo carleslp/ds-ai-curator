@@ -32,7 +32,23 @@ const RankedResourceSchema = z.object({
   published_date: z.string().min(1),
   summary: z.string().min(1).max(600),
   design_system_angle: z.string().min(1).max(500),
-  why_it_matters_to_our_team: z.string().min(1).max(500),
+  // Unlike the other fields above, this max IS the render budget, not a
+  // generous backstop (PR-20a). emailTemplate.ts's why_it_matters box has no
+  // reliable ellipsis fallback across email clients: -webkit-line-clamp is
+  // WebKit-only and many clients ignore it, so text past the box's capacity
+  // is hard-clipped mid-sentence with nothing to show for it. The box's
+  // capacity, from its actual CSS (renderResourceCard): ~483px usable text
+  // width (1200px container - 80px section padding, /2 columns - 20px
+  // gutter - 40px card padding - 24px div padding - 3px border), 3 lines at
+  // line-height 1.55 x 12px font, ~78 chars/line at ~6.2px/char for the
+  // -apple-system/Segoe UI/Helvetica Neue/Arial stack, minus ~59 chars eaten
+  // off line 1 by the bold "Why it matters:" label — about 215 chars total.
+  // 185 leaves margin for that estimate's uncertainty (character mix affects
+  // width). The prompt target below is set low enough that Gemini's observed
+  // overshoot (up to ~1.4x a stated target) still lands under this max most
+  // of the time; when it doesn't, a zod rejection (honest degradation) beats
+  // a silently clipped card.
+  why_it_matters_to_our_team: z.string().min(1).max(185),
   why_selected: z.string().min(1).max(350),
   expected_impact_on_workflow: z.string().min(1).max(350),
   who_should_read: z.string().min(1).max(100),
@@ -101,7 +117,7 @@ characters including spaces and punctuation.
 - supportingSignals: three short observations that add nuance: what reinforces the thesis, what genuinely complicates it when the evidence supports tension, and what teams should monitor. Target 150 characters each, absolute max 170.
 - summary: answer "what changed?" and "what is the useful takeaway?" Do not merely describe the article. Target 280 characters, absolute max 600.
 - design_system_angle: explain the exact Design System workflow surface affected. Target 260 characters, absolute max 500.
-- why_it_matters_to_our_team: answer "why should we care on Monday morning?" with a practical team consequence. Target 220 characters, absolute max 500.
+- why_it_matters_to_our_team: answer "why should we care on Monday morning?" with a practical team consequence. This field renders in a small fixed-height box with no room to overflow — target 110 characters, absolute max 185. Going over the max is rejected, not trimmed to fit, so stay well under it.
 - why_selected: state the editorial judgment in reader-facing language, not ranking mechanics. Target 160 characters, absolute max 350.
 - expected_impact_on_workflow: name the behavior, artifact, or review habit likely to change. Name ONE specific change, not a list of examples. Target 180 characters, absolute max 350.
 - who_should_read: a slash-separated combination drawn from Designer, Frontend DS Engineer, AI Engineer, DesignOps. Target 30 characters, absolute max 100.
