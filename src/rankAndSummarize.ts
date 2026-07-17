@@ -140,7 +140,12 @@ export type ResourceFieldRepair = {
   index: number;
   title: string;
   url: string;
-  repairedFields: string[];
+  // Full per-field violation evidence (PR-26) — field, zod code, max
+  // allowed, actual length, the raw text that was rejected, and source —
+  // reusing SchemaValidationFailureDetail (PR-24) rather than the bare
+  // field-name list this originally shipped with, which left the message
+  // string as the only place the detail was actually visible.
+  repairedFields: SchemaValidationFailureDetail[];
 };
 
 export type ResourceDrop = {
@@ -148,6 +153,9 @@ export type ResourceDrop = {
   title: string | null;
   url: string | null;
   reason: string;
+  // The specific violation(s) that made this resource unsalvageable (PR-26),
+  // same shape as ResourceFieldRepair.repairedFields for consistency.
+  violations: SchemaValidationFailureDetail[];
 };
 
 const openAIModel = process.env.OPENAI_MODEL ?? "gpt-5.5";
@@ -624,31 +632,39 @@ export type SchemaValidationFailureDetail = {
 // response bloating logs/debug output, not a business-logic truncation.
 const maxLoggedRawValueLength = 1000;
 
+// Per-issue detail builder, shared by schemaValidationDetailFor() (every
+// issue in a full parse failure) and repairResourcesIndividually() (PR-26:
+// the same detail per resource that got individually repaired or dropped,
+// so resourceRepairs/resourceDrops carry the same field/max/actual-length/
+// raw-text/source evidence PR-24 already captures for a full failure,
+// instead of just a bare field-name string).
+function detailForIssue(rawParsed: unknown, issue: z.ZodIssue): SchemaValidationFailureDetail {
+  let cursor: unknown = rawParsed;
+  for (const key of issue.path) {
+    cursor = cursor && typeof cursor === "object" ? (cursor as Record<string | number, unknown>)[key] : undefined;
+  }
+
+  const resourceIndex = issue.path[0] === "resources" && typeof issue.path[1] === "number" ? issue.path[1] : null;
+  const resources = (rawParsed as { resources?: unknown[] } | null)?.resources;
+  const resource =
+    resourceIndex !== null && Array.isArray(resources) ? (resources[resourceIndex] as Record<string, unknown> | undefined) : undefined;
+
+  const rawString = typeof cursor === "string" ? cursor : JSON.stringify(cursor);
+
+  return {
+    field: issue.path.join("."),
+    zodCode: issue.code,
+    maxAllowed: "maximum" in issue && typeof issue.maximum === "number" ? issue.maximum : null,
+    actualLength: typeof cursor === "string" ? cursor.length : null,
+    rawValue: rawString.length > maxLoggedRawValueLength ? `${rawString.slice(0, maxLoggedRawValueLength)}…` : rawString,
+    resourceTitle: typeof resource?.title === "string" ? resource.title : null,
+    resourceSource: typeof resource?.source === "string" ? resource.source : null,
+    resourceUrl: typeof resource?.url === "string" ? resource.url : null
+  };
+}
+
 function schemaValidationDetailFor(rawParsed: unknown, zodError: z.ZodError): SchemaValidationFailureDetail[] {
-  return zodError.issues.map((issue) => {
-    let cursor: unknown = rawParsed;
-    for (const key of issue.path) {
-      cursor = cursor && typeof cursor === "object" ? (cursor as Record<string | number, unknown>)[key] : undefined;
-    }
-
-    const resourceIndex = issue.path[0] === "resources" && typeof issue.path[1] === "number" ? issue.path[1] : null;
-    const resources = (rawParsed as { resources?: unknown[] } | null)?.resources;
-    const resource =
-      resourceIndex !== null && Array.isArray(resources) ? (resources[resourceIndex] as Record<string, unknown> | undefined) : undefined;
-
-    const rawString = typeof cursor === "string" ? cursor : JSON.stringify(cursor);
-
-    return {
-      field: issue.path.join("."),
-      zodCode: issue.code,
-      maxAllowed: "maximum" in issue && typeof issue.maximum === "number" ? issue.maximum : null,
-      actualLength: typeof cursor === "string" ? cursor.length : null,
-      rawValue: rawString.length > maxLoggedRawValueLength ? `${rawString.slice(0, maxLoggedRawValueLength)}…` : rawString,
-      resourceTitle: typeof resource?.title === "string" ? resource.title : null,
-      resourceSource: typeof resource?.source === "string" ? resource.source : null,
-      resourceUrl: typeof resource?.url === "string" ? resource.url : null
-    };
-  });
+  return zodError.issues.map((issue) => detailForIssue(rawParsed, issue));
 }
 
 // Attempts to salvage a RankedDigestSchema failure per-resource instead of
@@ -701,11 +717,13 @@ function repairResourcesIndividually(
       if (check.success) {
         repairedResources.push(check.data);
       } else {
+        const violations = check.error.issues.map((issue) => detailForIssue(rawParsed, issue));
         resourceDrops.push({
           index,
           title: titleGuess,
           url: urlGuess,
-          reason: `Failed independent validation despite no top-level issue attribution: ${check.error.issues.map((issue) => issue.path.join(".")).join(", ")}.`
+          reason: `Failed independent validation despite no top-level issue attribution: ${check.error.issues.map((issue) => issue.path.join(".")).join(", ")}.`,
+          violations
         });
       }
       return;
@@ -721,7 +739,8 @@ function repairResourcesIndividually(
         index,
         title: titleGuess,
         url: urlGuess,
-        reason: `Field "${unsafeIssue.path.slice(2).join(".")}" failed validation (${unsafeIssue.code}) and is not safely omittable — dropping the resource rather than trusting the rest of it.`
+        reason: `Field "${unsafeIssue.path.slice(2).join(".")}" failed validation (${unsafeIssue.code}) and is not safely omittable — dropping the resource rather than trusting the rest of it.`,
+        violations: issues.map((issue) => detailForIssue(rawParsed, issue))
       });
       return;
     }
@@ -741,7 +760,7 @@ function repairResourcesIndividually(
       index,
       title: titleGuess ?? "(untitled)",
       url: urlGuess ?? "(no url)",
-      repairedFields: offendingFields
+      repairedFields: issues.map((issue) => detailForIssue(rawParsed, issue))
     });
     repairedResources.push(repaired as RepairedRankedResource);
   });
@@ -782,7 +801,11 @@ function parseRankedDigest(rawParsed: unknown, provider: ProviderName): ParsedRa
         `discarding the whole response (PR-25):\n` +
         [
           ...repair.resourceRepairs.map(
-            (item) => `  repaired: "${item.title}" (${item.url}) — fell back only on: ${item.repairedFields.join(", ")}`
+            (item) =>
+              `  repaired: "${item.title}" (${item.url}) — fell back only on: ` +
+              item.repairedFields
+                .map((field) => `${field.field} [${field.zodCode}${field.maxAllowed !== null ? `, max ${field.maxAllowed}` : ""}]: ${field.actualLength ?? "n/a"} chars`)
+                .join(", ")
           ),
           ...repair.resourceDrops.map((item) => `  dropped: "${item.title ?? "unknown"}" (${item.url ?? "no url"}) — ${item.reason}`)
         ].join("\n")

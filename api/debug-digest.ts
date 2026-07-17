@@ -81,6 +81,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
     tensionHonesty: result.tensionHonesty,
     sectionContractViolations: result.sectionContractViolations,
     sectionContractWarnings: result.sectionContractWarnings,
+    resourceRepairs: result.resourceRepairs,
+    resourceDrops: result.resourceDrops,
     editorialWritingLayer: result.editorialWritingLayer,
     resourceCardIntegrity: result.resourceCardIntegrity,
     supportingResourceRanking: result.supportingResourceRanking,
