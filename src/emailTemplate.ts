@@ -293,12 +293,19 @@ function renderLearningRecommendation(recommendation: LearningRecommendation | n
   assertNoReaderFacingMachinery("whyRecommended", whyRecommended);
   assertNoReaderFacingMachinery("readerGain", readerGain);
 
-  // An honest gap beats a mechanical sentence: if the justification could not be
-  // written from the body it is omitted, not templated.
+  // An honest gap beats a mechanical sentence: if either justification could
+  // not be written per-artifact from the body it is omitted, not templated
+  // (readerGain used to be the same fixed sentence every issue — PR-20).
   const whyBlock = whyRecommended
     ? `
                           <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:10px;">
                             <strong style="color:#9a3412;">Why this is worth your time:</strong> ${escapeHtml(whyRecommended)}
+                          </div>`
+    : "";
+  const readerGainBlock = readerGain
+    ? `
+                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:12px;">
+                            <strong style="color:#9a3412;">Reader takeaway:</strong> ${escapeHtml(readerGain)}
                           </div>`
     : "";
 
@@ -323,9 +330,7 @@ function renderLearningRecommendation(recommendation: LearningRecommendation | n
                             </a>
                           </div>
                           ${whyBlock}
-                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:12px;">
-                            <strong style="color:#9a3412;">Reader takeaway:</strong> ${escapeHtml(readerGain)}
-                          </div>
+                          ${readerGainBlock}
                           <a href="${safeUrl(recommendation.url)}" style="font-size:12px;color:#c2410c;font-weight:900;text-decoration:none;">
                             Read →
                           </a>

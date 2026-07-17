@@ -688,6 +688,7 @@ async function selectRoleBasedRecommendation(
     });
   }
 
+  const whyWorthYourTime = writeWhyWorthYourTime(best.body);
   const recommendation = recommendationFor(
     {
       candidate: best.survivor.candidate,
@@ -698,7 +699,8 @@ async function selectRoleBasedRecommendation(
       reasons: [`the fetched article ${best.reason}`, best.survivor.teachingFit.reason]
     },
     input,
-    writeTeachingJustification(best.body)
+    whyWorthYourTime.text,
+    writeReaderTakeaway(best.body, whyWorthYourTime.evidence)
   );
   const whyItWon = `${best.survivor.candidate.title} became Recommended Reading because its fetched article body ${best.reason} — the strongest thesis-connected teaching artifact after Stage 2.`;
 
@@ -792,28 +794,101 @@ function relationshipToThesisFor(candidate: CandidateResource, input: LearningRe
   return truncateText(`${candidate.title} helps unpack the practical meaning of ${thesis.charAt(0).toLowerCase()}${thesis.slice(1)}`, 180);
 }
 
-// Writes the reader-facing "why this is worth your time" line from the fetched
-// article body — what the piece argues, in the article's own words — not from
-// selection counts or genre labels. Sentences that carry any machinery
-// vocabulary are skipped so the reader never sees the workings; if none of the
-// body's sentences qualify the justification is omitted rather than templated.
-function writeTeachingJustification(body: string): string {
-  const sentences = cleanText(body)
+// Candidate sentences for both writers below: real prose from the fetched
+// body, never a title/snippet/genre label, filtered so nothing short/thin or
+// carrying machinery vocabulary can be selected.
+function qualifyingBodySentences(body: string): string[] {
+  return cleanText(body)
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => {
       const wordCount = sentence.split(/\s+/).filter(Boolean).length;
       return wordCount >= 8 && sentence.length <= 240 && machineryTermsIn(sentence).length === 0;
     });
+}
 
-  if (sentences.length === 0) return "";
-  return truncateText(sentences.slice(0, 2).join(" "), 220);
+function firstMatch(sentences: string[], signals: string[], maxLength: number, exclude?: string): string | null {
+  for (const sentence of sentences) {
+    if (sentence === exclude || sentence.length > maxLength) continue;
+    const lower = sentence.toLowerCase();
+    if (signals.some((signal) => lower.includes(signal))) return sentence;
+  }
+  return null;
+}
+
+function lowercaseFirst(value: string): string {
+  return value ? `${value.charAt(0).toLowerCase()}${value.slice(1)}` : value;
+}
+
+// Sentences that demonstrate something concrete (a worked example, an actual
+// mechanism) rather than merely stating a topic. Deliberately a different set
+// from concreteValueSignals's counterpart below (takeawaySignals) so
+// whyWorthYourTime and readerTakeaway draw from different parts of the body
+// instead of repeating each other.
+const concreteValueSignals = [
+  "for example",
+  "for instance",
+  "case study",
+  "imagine",
+  "consider",
+  "how to",
+  "here's how",
+  "here is how",
+  "step ",
+  "first,",
+  "next,",
+  "walkthrough",
+  "walk through",
+  "let's"
+];
+
+// Sentences that state a distillable lesson or principle, used for
+// readerTakeaway (see concreteValueSignals above).
+const takeawaySignals = ["the key idea", "the takeaway", "lesson", "principle", "rule of thumb", "in practice"];
+
+// Writes the reader-facing "why this is worth your time" line as a judgment
+// about the artifact's value — why a senior Design Systems practitioner would
+// be better at their job for reading THIS piece — not a restatement of what
+// the piece is about (that was the PR-20 bug: this used to be the article's
+// own opening sentences, an excerpt/description, not a judgment). Grounded in
+// a body sentence that demonstrates something concrete, so the judgment is
+// specific to this artifact rather than a template. Returns the raw sentence
+// alongside the composed text so writeReaderTakeaway can exclude it. Omitted
+// (both empty), never templated, when the body has no qualifying sentence.
+function writeWhyWorthYourTime(body: string): { text: string; evidence: string | null } {
+  // Longest opener is 83 chars ("...real example, not just the claim: ");
+  // emailTemplate.ts's whyRecommended render budget is 220, so 130 leaves
+  // margin rather than the ~27 chars an earlier, more conservative cap left
+  // unused (and rejected real matches at 111 and 125 chars).
+  const evidence = firstMatch(qualifyingBodySentences(body), concreteValueSignals, 130);
+  if (!evidence) return { text: "", evidence: null };
+
+  const opener = /for example|for instance|case study|imagine|consider/.test(evidence.toLowerCase())
+    ? "Worth your time because it grounds the idea in a real example, not just the claim"
+    : "Worth your time because it shows the actual mechanics, not just the concept";
+  return { text: `${opener}: ${lowercaseFirst(evidence)}`, evidence };
+}
+
+// Writes what THIS specific artifact leaves the reader able to do or see
+// differently, grounded in a body sentence that states a lesson or principle
+// — excluding whatever raw sentence writeWhyWorthYourTime already used, so
+// the two fields never repeat each other. Omitted (never a fixed template —
+// that was the PR-20 bug: this used to be the same sentence every issue, for
+// weeks) when the body has no qualifying sentence.
+function writeReaderTakeaway(body: string, alreadyUsedSentence: string | null): string {
+  // Opener is 41 chars; emailTemplate.ts's readerGain render budget is 190,
+  // so 145 leaves ~4 chars of margin rather than the ~29 an earlier, more
+  // conservative cap left unused (and rejected a real 133-char match).
+  const evidence = firstMatch(qualifyingBodySentences(body), takeawaySignals, 145, alreadyUsedSentence ?? undefined);
+  if (!evidence) return "";
+  return `After this, you'll see it differently: ${lowercaseFirst(evidence)}`;
 }
 
 function recommendationFor(
   scored: ScoredLearningCandidate,
   input: LearningRecommendationInput,
-  whyWorthYourTime: string
+  whyWorthYourTime: string,
+  readerTakeaway: string
 ): LearningRecommendation {
   const format = formatFor(scored.candidate);
   return {
@@ -823,10 +898,7 @@ function recommendationFor(
     source: scored.candidate.source,
     format,
     estimatedMinutes: estimateMinutes(scored.candidate, format),
-    readerGain: truncateText(
-      `A sharper mental model for how this week's shift changes Design System practice, not just whether the claim holds.`,
-      170
-    ),
+    readerGain: readerTakeaway,
     whyRecommended: whyWorthYourTime,
     confidence: Math.max(0.5, Math.min(0.95, Math.round((scored.score / 100) * 100) / 100)),
     relationshipToThesis: relationshipToThesisFor(scored.candidate, input)
@@ -880,9 +952,9 @@ export async function selectLearningRecommendation(
   }
 
   // Legacy path (no editorial roles, so no Stage 2 body fetch). Without a body
-  // there is nothing to write the justification from, so it is honestly omitted
+  // there is nothing to write either field from, so both are honestly omitted
   // rather than templated.
-  const recommendation = recommendationFor(best, input, "");
+  const recommendation = recommendationFor(best, input, "", "");
 
   return baseLearningDebug({
     recommendation,
