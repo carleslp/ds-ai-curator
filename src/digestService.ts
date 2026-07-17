@@ -52,7 +52,8 @@ import {
 import {
   rankAndSummarizeWithGemini,
   rankAndSummarizeWithOpenAI,
-  type ProviderName
+  type ProviderName,
+  type SchemaValidationFailureDetail
 } from "./rankAndSummarize.js";
 import {
   emptyNarrativeExtraction,
@@ -113,6 +114,12 @@ type ProviderAttempt = {
 type ProviderFailure = {
   provider: ProviderName;
   error: string;
+  // Populated only for a RankedDigestSchema validation failure (PR-24): which
+  // field, the actual raw text that violated it, its length, and which
+  // resource/source it came from — the evidence a bare Zod error message
+  // doesn't carry. Absent for non-schema failures (network errors, missing
+  // API keys, etc.).
+  schemaValidationDetail?: SchemaValidationFailureDetail[];
 };
 
 type CandidatePreview = {
@@ -539,6 +546,16 @@ function getErrorMessage(error: unknown): string {
   return String(error);
 }
 
+// parseRankedDigest (rankAndSummarize.ts) attaches schemaValidationDetail to
+// the error it throws on a schema validation failure, the same
+// attach-to-error pattern used for providerAttempts/providerFailures above.
+// Spread the result directly into a ProviderFailure literal so a non-schema
+// failure (network error, missing key) doesn't get an undefined key.
+function schemaValidationDetailFrom(error: unknown): { schemaValidationDetail?: SchemaValidationFailureDetail[] } {
+  const detail = (error as { schemaValidationDetail?: SchemaValidationFailureDetail[] } | null)?.schemaValidationDetail;
+  return detail ? { schemaValidationDetail: detail } : {};
+}
+
 function decisionsByUrl(decisions: EditorialSelectionDecision[]): Map<string, EditorialSelectionDecision> {
   return new Map(decisions.map((decision) => [normalizeUrl(decision.url), decision]));
 }
@@ -896,7 +913,7 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
       const message = getErrorMessage(error);
       console.error(`OpenAI ranking failed: ${message}`);
       providerAttempts.push({ provider: "openAI", status: "failed", error: message });
-      providerFailures.push({ provider: "openAI", error: message });
+      providerFailures.push({ provider: "openAI", error: message, ...schemaValidationDetailFrom(error) });
       if (hasGemini) {
         console.log("Falling back to next live provider: Gemini.");
       }
@@ -920,7 +937,7 @@ async function rankWithAvailableProvider(filteredCandidates: CandidateResource[]
       const message = getErrorMessage(error);
       console.error(`Gemini ranking failed: ${message}`);
       providerAttempts.push({ provider: "gemini", status: "failed", error: message });
-      providerFailures.push({ provider: "gemini", error: message });
+      providerFailures.push({ provider: "gemini", error: message, ...schemaValidationDetailFrom(error) });
     }
   }
 

@@ -543,6 +543,86 @@ function assertSelectedFromCandidates(resources: RankedDigest["resources"], cand
   }
 }
 
+// Diagnostic detail for one Zod issue: which field, what the model actually
+// wrote there, and which resource it belongs to — resolved from the RAW
+// pre-validation JSON, since RankedDigest (the parsed/validated type) never
+// exists when parse() throws. This is the evidence a "too_big" error alone
+// doesn't carry (PR-24): schema.parse() only reports that a constraint was
+// violated, not by how much or on what actual text.
+export type SchemaValidationFailureDetail = {
+  field: string;
+  zodCode: string;
+  maxAllowed: number | null;
+  actualLength: number | null;
+  rawValue: string;
+  resourceTitle: string | null;
+  resourceSource: string | null;
+  resourceUrl: string | null;
+};
+
+// A raw log value has no schema guarantees (that's the point — it's the text
+// that failed one), so this is a defensive cap against a truly degenerate
+// response bloating logs/debug output, not a business-logic truncation.
+const maxLoggedRawValueLength = 1000;
+
+function schemaValidationDetailFor(rawParsed: unknown, zodError: z.ZodError): SchemaValidationFailureDetail[] {
+  return zodError.issues.map((issue) => {
+    let cursor: unknown = rawParsed;
+    for (const key of issue.path) {
+      cursor = cursor && typeof cursor === "object" ? (cursor as Record<string | number, unknown>)[key] : undefined;
+    }
+
+    const resourceIndex = issue.path[0] === "resources" && typeof issue.path[1] === "number" ? issue.path[1] : null;
+    const resources = (rawParsed as { resources?: unknown[] } | null)?.resources;
+    const resource =
+      resourceIndex !== null && Array.isArray(resources) ? (resources[resourceIndex] as Record<string, unknown> | undefined) : undefined;
+
+    const rawString = typeof cursor === "string" ? cursor : JSON.stringify(cursor);
+
+    return {
+      field: issue.path.join("."),
+      zodCode: issue.code,
+      maxAllowed: "maximum" in issue && typeof issue.maximum === "number" ? issue.maximum : null,
+      actualLength: typeof cursor === "string" ? cursor.length : null,
+      rawValue: rawString.length > maxLoggedRawValueLength ? `${rawString.slice(0, maxLoggedRawValueLength)}…` : rawString,
+      resourceTitle: typeof resource?.title === "string" ? resource.title : null,
+      resourceSource: typeof resource?.source === "string" ? resource.source : null,
+      resourceUrl: typeof resource?.url === "string" ? resource.url : null
+    };
+  });
+}
+
+// Parses rawParsed against RankedDigestSchema. On failure, logs the raw
+// failing value/length/source for every offending field (console.error, so
+// it reaches Vercel's function logs — the sole line item the investigation
+// this PR follows from found nothing retained for) and attaches the same
+// detail to the re-thrown error's schemaValidationDetail property, following
+// the same attach-to-error pattern digestService.ts already uses for
+// providerAttempts/providerFailures. digestService.ts's catch block reads
+// this off the error and threads it into providerFailures, which
+// /api/debug-digest already surfaces — the actually-retrievable route.
+function parseRankedDigest(rawParsed: unknown, provider: ProviderName): RankedDigest {
+  const result = RankedDigestSchema.safeParse(rawParsed);
+  if (result.success) return result.data;
+
+  const detail = schemaValidationDetailFor(rawParsed, result.error);
+  console.error(
+    `${provider} response failed RankedDigestSchema validation (${detail.length} issue(s)):\n` +
+      detail
+        .map(
+          (item) =>
+            `  ${item.field} [${item.zodCode}${item.maxAllowed !== null ? `, max ${item.maxAllowed}` : ""}]: ` +
+            `${item.actualLength ?? "n/a"} chars from "${item.resourceTitle ?? "unknown resource"}" ` +
+            `(${item.resourceSource ?? "unknown source"}, ${item.resourceUrl ?? "no url"}): ${JSON.stringify(item.rawValue)}`
+        )
+        .join("\n")
+  );
+
+  const error = result.error as z.ZodError & { schemaValidationDetail?: SchemaValidationFailureDetail[] };
+  error.schemaValidationDetail = detail;
+  throw error;
+}
+
 export async function rankAndSummarizeWithOpenAI(candidates: CandidateResource[]): Promise<Digest> {
   const apiKey = process.env.OPENAI_API_KEY;
 
@@ -564,7 +644,7 @@ export async function rankAndSummarizeWithOpenAI(candidates: CandidateResource[]
     }
   });
 
-  const rankedDigest = RankedDigestSchema.parse(JSON.parse(response.output_text));
+  const rankedDigest = parseRankedDigest(JSON.parse(response.output_text), "openAI");
   assertSelectedFromCandidates(rankedDigest.resources, candidates);
   return toPublicDigest(rankedDigest);
 }
@@ -602,7 +682,7 @@ export async function rankAndSummarizeWithGemini(candidates: CandidateResource[]
     throw new Error("Gemini response did not include text.");
   }
 
-  const rankedDigest = RankedDigestSchema.parse(JSON.parse(text));
+  const rankedDigest = parseRankedDigest(JSON.parse(text), "gemini");
   assertSelectedFromCandidates(rankedDigest.resources, candidates);
   return toPublicDigest(rankedDigest);
 }
