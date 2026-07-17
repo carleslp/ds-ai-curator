@@ -794,16 +794,40 @@ function relationshipToThesisFor(candidate: CandidateResource, input: LearningRe
   return truncateText(`${candidate.title} helps unpack the practical meaning of ${thesis.charAt(0).toLowerCase()}${thesis.slice(1)}`, 180);
 }
 
+// A sentence opening with a bare conversational reply ("Not really, but...",
+// "Sort of, but...") is answering a rhetorical question the article posed in
+// the PREVIOUS sentence. Lifted out on its own and glued onto our opener, the
+// reply reads as a non sequitur (PR-22: "...not just the concept: not
+// really, but learning how to..." — matched on "how to" appearing later in
+// the sentence, with no regard for the dangling reply it was attached to).
+const danglingReplyOpener = /^(not really|not exactly|not quite|sort of|kind of|somewhat|yes|no|sure|well|actually|honestly|frankly|maybe|perhaps|true)\s*,/i;
+
+// The naive sentence split below treats "1." in a numbered list ("...five
+// archetypes: 1. First archetype...") as a sentence end, since it's a period
+// followed by whitespace. That leaves a fragment ending in a colon and a bare
+// list marker with no content — "...I see what I think is five archetypes:
+// 1." — which is not a complete thought (PR-22, found verifying the fix
+// above: rejecting the dangling-reply sentence surfaced this as the next
+// candidate).
+const danglingListMarkerEnding = /:\s*\d{1,2}\.\s*$/;
+
 // Candidate sentences for both writers below: real prose from the fetched
-// body, never a title/snippet/genre label, filtered so nothing short/thin or
-// carrying machinery vocabulary can be selected.
+// body, never a title/snippet/genre label, filtered so nothing short/thin,
+// carrying machinery vocabulary, opening as a reply to unseen context, or
+// ending as a truncated list marker can be selected.
 function qualifyingBodySentences(body: string): string[] {
   return cleanText(body)
     .split(/(?<=[.!?])\s+/)
     .map((sentence) => sentence.trim())
     .filter((sentence) => {
       const wordCount = sentence.split(/\s+/).filter(Boolean).length;
-      return wordCount >= 8 && sentence.length <= 240 && machineryTermsIn(sentence).length === 0;
+      return (
+        wordCount >= 8 &&
+        sentence.length <= 240 &&
+        machineryTermsIn(sentence).length === 0 &&
+        !danglingReplyOpener.test(sentence) &&
+        !danglingListMarkerEnding.test(sentence)
+      );
     });
 }
 
