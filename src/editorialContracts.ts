@@ -1,7 +1,7 @@
 import type { Digest, Resource } from "./emailTemplate.js";
 import type { CandidateSignal } from "./editorialThesis.js";
 
-type SectionName =
+export type SectionName =
   | "theSignal"
   | "editorsPick"
   | "supportingSignals"
@@ -28,6 +28,15 @@ export type RedundancyMatrixEntry = {
   pair: string;
   score: number;
   warning: boolean;
+  // score >= redundancyRegenerationThreshold. Distinct from `warning` (the
+  // older, softer 0.42 threshold, left untouched) — PR-23 adds this as the
+  // threshold that actually triggers a fallback swap, not just a log line.
+  enforced: boolean;
+  // The section to regenerate when `enforced` is true — the lower-priority
+  // side of the pair, the one that should defer to the other rather than
+  // restate it. Null means this pair is flagged (via `warning`/`enforced`)
+  // but PR-23 deliberately does not wire it to any corrective action yet.
+  regenerateSection: SectionName | null;
 };
 
 export type TensionHonestyResult = {
@@ -42,6 +51,11 @@ export type SectionContractsDebug = {
   tensionHonesty: TensionHonestyResult;
   sectionContractViolations: string[];
   sectionContractWarnings: string[];
+  // PR-23, measurement only: every pair at or above redundancyRegenerationThreshold,
+  // same shape as sectionContractWarnings. Not wired to any corrective action yet —
+  // this is purely for observing how often/how hard the 0.5 line gets crossed across
+  // real runs before regeneration/fallback gets turned on.
+  redundancyEnforcementLog: string[];
 };
 
 const bannedTerms = [
@@ -192,6 +206,14 @@ function uniqueTerms(value: string): Set<string> {
       .filter((word) => word.length > 3 && !stopWords.has(word))
   );
 }
+
+// Above this, two sections read as near-duplicates rather than merely
+// related — a live run measured "The Signal ↔ Suggested Experiment" at 0.86,
+// both repeating the same clause almost verbatim (PR-23). 0.5 sits above the
+// softer overlaps also seen on live runs (e.g. "Watchlist ↔ The Signal" at
+// ~0.48, which stays a warning-only signal per PR-23 — not folded into this
+// threshold) while comfortably catching the 0.86-class case this fix targets.
+const redundancyRegenerationThreshold = 0.5;
 
 function overlapScore(a: string, b: string): number {
   const left = uniqueTerms(a);
@@ -377,17 +399,37 @@ export function validateSectionContracts(digest: Digest, leadSignal: CandidateSi
   };
 
   const redundancyMatrix: RedundancyMatrixEntry[] = [
-    ["The Signal ↔ Editor's Pick", digest.theSignal, editorsPickText(digest.editorsPick)],
-    ["The Signal ↔ Suggested Experiment", digest.theSignal, digest.suggestedExperiment],
-    ["Editor's Pick ↔ Suggested Experiment", editorsPickText(digest.editorsPick), digest.suggestedExperiment],
-    ["Suggested Experiment ↔ Questions", digest.suggestedExperiment, questionsText(digest.teamDiscussionQuestions)],
-    ["Watchlist ↔ The Signal", watchlistText(digest.nextWeekWatchlist), digest.theSignal]
-  ].map(([pair, left, right]) => {
+    // regenerateSection is the lower-priority side of the pair — the one that
+    // should defer to (not restate) the other when they read as near-duplicates.
+    { pair: "The Signal ↔ Editor's Pick", left: digest.theSignal, right: editorsPickText(digest.editorsPick), regenerateSection: "editorsPick" as const },
+    { pair: "The Signal ↔ Suggested Experiment", left: digest.theSignal, right: digest.suggestedExperiment, regenerateSection: "suggestedExperiment" as const },
+    {
+      pair: "Editor's Pick ↔ Suggested Experiment",
+      left: editorsPickText(digest.editorsPick),
+      right: digest.suggestedExperiment,
+      regenerateSection: "suggestedExperiment" as const
+    },
+    {
+      pair: "Suggested Experiment ↔ Questions",
+      left: digest.suggestedExperiment,
+      right: questionsText(digest.teamDiscussionQuestions),
+      regenerateSection: "questionsForOurTeam" as const
+    },
+    // Flagged via `warning` (0.42+) same as every other pair, but PR-23
+    // deliberately leaves regenerateSection null here: its typical overlap
+    // (~0.48 on the run that motivated this fix) is meaningfully softer than
+    // the 0.86 case PR-23 targets, and folding it in — or lowering the
+    // threshold to catch it — is a separate calibration question for after
+    // the 0.5-threshold fix has been observed across a few runs.
+    { pair: "Watchlist ↔ The Signal", left: watchlistText(digest.nextWeekWatchlist), right: digest.theSignal, regenerateSection: null }
+  ].map(({ pair, left, right, regenerateSection }) => {
     const score = overlapScore(left, right);
     return {
       pair,
       score,
-      warning: score >= 0.42
+      warning: score >= 0.42,
+      enforced: score >= redundancyRegenerationThreshold,
+      regenerateSection
     };
   });
 
@@ -415,11 +457,17 @@ export function validateSectionContracts(digest: Digest, leadSignal: CandidateSi
     .filter((entry) => entry.warning)
     .map((entry) => `${entry.pair} overlap is ${entry.score}.`);
 
+  // PR-23, measurement only — see the comment on redundancyEnforcementLog.
+  const redundancyEnforcementLog = redundancyMatrix
+    .filter((entry) => entry.enforced)
+    .map((entry) => `${entry.pair} overlap is ${entry.score}.`);
+
   return {
     sectionContracts,
     redundancyMatrix,
     tensionHonesty,
     sectionContractViolations,
-    sectionContractWarnings
+    sectionContractWarnings,
+    redundancyEnforcementLog
   };
 }

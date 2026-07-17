@@ -226,6 +226,7 @@ type DailyDigestResult = {
   tensionHonesty: SectionContractsDebug["tensionHonesty"];
   sectionContractViolations: string[];
   sectionContractWarnings: string[];
+  redundancyEnforcementLog: string[];
   editorialWritingLayer: EditorialWritingLayerDebug["editorialWritingLayer"];
   resourceCardIntegrity: EditorialWritingLayerDebug["resourceCardIntegrity"];
   supportingResourceRanking: EditorialThesisResult["supportingResourceRanking"];
