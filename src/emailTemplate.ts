@@ -64,11 +64,14 @@ function safeUrl(value: unknown): string {
 function renderResourceCard(resource: Resource): string {
   const date = cleanText(resource.published_date || resource.date || "Recent");
   const displayTitle = cleanText(resource.editorialTitle || resource.title);
-  const summary = truncateText(resource.cleanSummary ?? resource.summary, 280);
-  const whyItMatters = resource.why_it_matters_to_our_team
-    ? truncateText(resource.why_it_matters_to_our_team, 220)
-    : "";
-  const ignoreRisk = resource.ignore_risk ? truncateText(resource.ignore_risk, 180) : "";
+  // The model is prompted to target summary at 280, why_it_matters_to_our_team
+  // at 220, and ignore_risk at 180 (this card's render budget), with a much
+  // more generous RankedResourceSchema max as a backstop, not a render-time
+  // cut — see the comment on RankedResourceSchema for why. So this only
+  // normalizes whitespace/entities; it does not enforce the render budget.
+  const summary = cleanText(resource.cleanSummary ?? resource.summary);
+  const whyItMatters = resource.why_it_matters_to_our_team ? cleanText(resource.why_it_matters_to_our_team) : "";
+  const ignoreRisk = resource.ignore_risk ? cleanText(resource.ignore_risk) : "";
 
   return `
 <table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="height:100%;background:#ffffff;border:1px solid #ede9f3;border-radius:14px;table-layout:fixed;">
@@ -183,10 +186,11 @@ function renderEditorsPick(editorsPick: Resource | null): string {
   if (!editorsPick) return "";
 
   const displayTitle = cleanText(editorsPick.editorialTitle || editorsPick.title);
-  const summary = truncateText(editorsPick.cleanSummary ?? editorsPick.summary, 220);
-  const whyItMatters = editorsPick.why_it_matters_to_our_team
-    ? truncateText(editorsPick.why_it_matters_to_our_team, 180)
-    : "";
+  // Same fields as renderResourceCard, targeted at 280/220 — see the comment
+  // there. Unlike the supporting-card grid, this hero section has no CSS
+  // line-clamp, so it can show the same text uncropped.
+  const summary = cleanText(editorsPick.cleanSummary ?? editorsPick.summary);
+  const whyItMatters = editorsPick.why_it_matters_to_our_team ? cleanText(editorsPick.why_it_matters_to_our_team) : "";
   const date = cleanText(editorsPick.published_date || editorsPick.date || "Recent");
   const detailRows = [
     ["Why this is evidence", editorsPick.why_selected],

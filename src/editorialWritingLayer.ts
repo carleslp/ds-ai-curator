@@ -350,7 +350,14 @@ function fallbackIgnoreRiskFor(resource: Resource): string {
   return "AI-assisted work may keep depending on undocumented assumptions that should be part of the system surface.";
 }
 
-function safeReaderCopy(value: string | undefined, fallback: string, maxLength: number): { value: string; regenerated: boolean } {
+// This used to truncateText() the result regardless of which branch fired —
+// re-clipping a resource's own LLM-authored copy (already bounded by
+// RankedResourceSchema in rankAndSummarize.ts) a second time here at a
+// smaller length, ending it with an ellipsis after it had already been
+// written as a complete sentence (see PR-19). The fallback strings
+// (fallbackSummaryFor et al.) are short fixed templates that never needed
+// truncating either.
+function safeReaderCopy(value: string | undefined, fallback: string): { value: string; regenerated: boolean } {
   const raw = cleanText(value || "");
   const cleaned = safeText(raw);
   const hasBannedTerms = bannedTermsInReaderText(raw).length > 0 || bannedTermsInReaderText(cleaned).length > 0;
@@ -358,13 +365,13 @@ function safeReaderCopy(value: string | undefined, fallback: string, maxLength: 
 
   if (!hasContent || hasBannedTerms) {
     return {
-      value: truncateText(fallback, maxLength),
+      value: fallback,
       regenerated: true
     };
   }
 
   return {
-    value: truncateText(cleaned, maxLength),
+    value: cleaned,
     regenerated: false
   };
 }
@@ -450,16 +457,14 @@ export function writeEditorsPickSection(resource: Resource | null, context: Edit
   const cleanSummary = contribution
     ? `${title} turns the week’s thesis into an operating question: ${truncateText(contribution, 185)}`
     : `${title} gives the week’s thesis a concrete Design System surface.`;
-  const summaryCopy = safeReaderCopy(cleanSummary, fallbackSummaryFor({ ...safeResource, title, source }), 220);
+  const summaryCopy = safeReaderCopy(cleanSummary, fallbackSummaryFor({ ...safeResource, title, source }));
   const whyCopy = safeReaderCopy(
     safeResource.why_it_matters_to_our_team,
-    fallbackWhyItMattersFor({ ...safeResource, title, source }),
-    180
+    fallbackWhyItMattersFor({ ...safeResource, title, source })
   );
   const impactCopy = safeReaderCopy(
     `${source} shifts the work from trusting generated output to checking whether metadata, review rules, and reusable context are strong enough to guide it.`,
-    fallbackImpactFor({ ...safeResource, title, source }),
-    180
+    fallbackImpactFor({ ...safeResource, title, source })
   );
 
   return {
@@ -523,10 +528,10 @@ export function writeWatchlistSection(context: HorizonContext): string[] {
 
 function sanitizeResource(resource: Resource): Resource {
   const title = cleanResourceTitle(resource.title);
-  const summary = safeReaderCopy(resource.cleanSummary || resource.summary, fallbackSummaryFor({ ...resource, title }), 280);
-  let whyItMatters = safeReaderCopy(resource.why_it_matters_to_our_team, fallbackWhyItMattersFor({ ...resource, title }), 220);
-  const impact = safeReaderCopy(resource.expected_impact_on_workflow, fallbackImpactFor({ ...resource, title }), 180);
-  const ignoreRisk = safeReaderCopy(resource.ignore_risk, fallbackIgnoreRiskFor({ ...resource, title }), 180);
+  const summary = safeReaderCopy(resource.cleanSummary || resource.summary, fallbackSummaryFor({ ...resource, title }));
+  let whyItMatters = safeReaderCopy(resource.why_it_matters_to_our_team, fallbackWhyItMattersFor({ ...resource, title }));
+  const impact = safeReaderCopy(resource.expected_impact_on_workflow, fallbackImpactFor({ ...resource, title }));
+  const ignoreRisk = safeReaderCopy(resource.ignore_risk, fallbackIgnoreRiskFor({ ...resource, title }));
 
   if (textOverlap(summary.value, whyItMatters.value) >= 0.58) {
     whyItMatters = {

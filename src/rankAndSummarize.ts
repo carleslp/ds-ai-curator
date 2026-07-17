@@ -4,24 +4,40 @@ import type { CandidateResource } from "./collectCandidates.js";
 import { withEditorialSections } from "./editorial.js";
 import type { Digest } from "./emailTemplate.js";
 import { aiEvidenceForText, designSystemEvidenceForText, maturityLevelForText } from "./filterCandidates.js";
-import { truncateText } from "./textUtils.js";
+import { cleanText } from "./textUtils.js";
 
 export type ProviderName = "openAI" | "gemini";
 
+// Gemini's responseSchema (PR-18) has no maxLength support and this PR does
+// not touch it, so these caps are enforced only through the prompt's stated
+// budget (see the field writing rubric below) plus this zod check — there is
+// no API-level guarantee. Probing live output showed Gemini 2.5 Flash treats a
+// stated character count as a rough target, not a hard ceiling, and the
+// overshoot varies run to run: one probe measured why_it_matters_to_our_team
+// up to 306 chars against a 220 target; a later live run put summary over 400
+// against a 280 target. A max close to the stated target just turns ordinary
+// run-to-run variance into a zod rejection, degrading the whole run to
+// candidateFallback — the exact outcome this PR exists to avoid. So these caps
+// are deliberately not "the render budget": they are a generous backstop
+// against genuinely degenerate output (a runaway/repeating generation), sized
+// with wide margin above anything observed. The prompt's stated target (not
+// this max) is what actually keeps typical output near the render budget;
+// emailTemplate.ts's CSS line-clamp (not a JS truncateText/ellipsis) is what
+// visually crops a supporting card if a resource writes close to the ceiling.
 const RankedResourceSchema = z.object({
   title: z.string().min(1),
   source: z.string().min(1),
   url: z.string().url(),
   type: z.enum(["Article", "Tool", "Research", "Video", "Docs"]),
   published_date: z.string().min(1),
-  summary: z.string().min(1),
-  design_system_angle: z.string().min(1),
-  why_it_matters_to_our_team: z.string().min(1),
-  why_selected: z.string().min(1),
-  expected_impact_on_workflow: z.string().min(1),
-  who_should_read: z.string().min(1),
-  estimated_reading_time: z.string().min(1),
-  ignore_risk: z.string().min(1),
+  summary: z.string().min(1).max(600),
+  design_system_angle: z.string().min(1).max(500),
+  why_it_matters_to_our_team: z.string().min(1).max(500),
+  why_selected: z.string().min(1).max(350),
+  expected_impact_on_workflow: z.string().min(1).max(350),
+  who_should_read: z.string().min(1).max(100),
+  estimated_reading_time: z.string().min(1).max(20),
+  ignore_risk: z.string().min(1).max(350),
   impact_score: z.number().min(1).max(5),
   affected_workflow_areas: z
     .array(
@@ -39,7 +55,7 @@ const RankedResourceSchema = z.object({
       ])
     )
     .min(1),
-  directDesignSystemEvidence: z.string().min(1),
+  directDesignSystemEvidence: z.string().min(1).max(700),
   relevance_score: z.number().min(1).max(5),
   worth_your_time_score: z.number().min(1).max(5)
 });
@@ -72,17 +88,26 @@ Editorial voice:
 - Do not use bullets as a substitute for synthesis inside prose fields. Each field should read like edited newsletter copy.
 - Vary sentence openings and verbs. Do not repeat "shows", "highlights", "underscores", or "matters" across cards.
 - Preserve executive tone: sharp, practical, plain-spoken, and easy to skim.
+- Never end a field with an ellipsis ("…" or "...") or trail off as if there were more to say. Every field is a complete, self-contained thought that ends with terminal punctuation (. ! or ?). If a sentence is running long, end it earlier — do not let it hang unfinished.
 
 Field writing rubric:
-- trend_summary: a compact market/workflow read. Name the shift and the implication for DS × AI work.
-- theSignal: 1-2 sentences that connect the week’s strongest sources into one thesis. No article-by-article recap.
-- supportingSignals: three short observations that add nuance: what reinforces the thesis, what genuinely complicates it when the evidence supports tension, and what teams should monitor.
-- summary: answer "what changed?" and "what is the useful takeaway?" Do not merely describe the article.
-- design_system_angle: explain the exact Design System workflow surface affected.
-- why_it_matters_to_our_team: answer "why should we care on Monday morning?" with a practical team consequence.
-- why_selected: state the editorial judgment in reader-facing language, not ranking mechanics.
-- expected_impact_on_workflow: name the behavior, artifact, or review habit likely to change.
-- ignore_risk: begin with the consequence of ignoring the topic, then explain the operational cost.
+Every field below gives a target length and an absolute maximum. Write to the
+target as complete sentences. The maximum is a hard limit that will reject the
+whole response if any field exceeds it — never write past it and rely on
+truncation to fit; a cut-off field is worse than a shorter one. Count
+characters including spaces and punctuation.
+- trend_summary: a compact market/workflow read. Name the shift and the implication for DS × AI work. Target 700 characters, absolute max 900.
+- theSignal: 1-2 sentences that connect the week’s strongest sources into one thesis. No article-by-article recap. Target 800 characters, absolute max 1000.
+- supportingSignals: three short observations that add nuance: what reinforces the thesis, what genuinely complicates it when the evidence supports tension, and what teams should monitor. Target 150 characters each, absolute max 170.
+- summary: answer "what changed?" and "what is the useful takeaway?" Do not merely describe the article. Target 280 characters, absolute max 600.
+- design_system_angle: explain the exact Design System workflow surface affected. Target 260 characters, absolute max 500.
+- why_it_matters_to_our_team: answer "why should we care on Monday morning?" with a practical team consequence. Target 220 characters, absolute max 500.
+- why_selected: state the editorial judgment in reader-facing language, not ranking mechanics. Target 160 characters, absolute max 350.
+- expected_impact_on_workflow: name the behavior, artifact, or review habit likely to change. Name ONE specific change, not a list of examples. Target 180 characters, absolute max 350.
+- who_should_read: a slash-separated combination drawn from Designer, Frontend DS Engineer, AI Engineer, DesignOps. Target 30 characters, absolute max 100.
+- estimated_reading_time: Target 5 characters, absolute max 20.
+- ignore_risk: begin with the consequence of ignoring the topic, then explain the operational cost. Name ONE specific consequence, not a list. Do not write open-ended enumerations like "leading to X, Y, and Z" — naming a growing list is what causes a field to run long and trail off unfinished. Pick the single most important consequence, state it, and stop. Target 180 characters, absolute max 350.
+- directDesignSystemEvidence: Target 300 characters, absolute max 700.
 `;
 
 function todayIsoDate(): string {
@@ -237,6 +262,8 @@ For each selected resource return:
 }
 
 Rules:
+- Every field has a target and an absolute max length stated in the field writing rubric above. A response that exceeds any field's absolute max is rejected outright, not trimmed — write to the target, never the max.
+- No field may end in "…" or "..." or otherwise trail off. Finish the thought inside the target length instead of running long and cutting it short.
 - Do not invent titles.
 - Do not invent URLs.
 - Use only candidates provided.
@@ -410,15 +437,18 @@ function toPublicDigest(rankedDigest: RankedDigest): Digest {
       url: resource.url,
       type: resource.type,
       published_date: resource.published_date,
-      summary: truncateText(resource.summary, 280),
-      cleanSummary: truncateText(resource.summary, 280),
-      design_system_angle: resource.design_system_angle,
-      why_it_matters_to_our_team: truncateText(resource.why_it_matters_to_our_team, 220),
-      why_selected: truncateText(resource.why_selected, 160),
-      expected_impact_on_workflow: truncateText(resource.expected_impact_on_workflow, 180),
+      // RankedResourceSchema's max() is a generous backstop, not a render-time
+      // cut (see the comment there), so this must not re-truncate — that was
+      // the original bug (PR-19). Only normalize whitespace/entities.
+      summary: cleanText(resource.summary),
+      cleanSummary: cleanText(resource.summary),
+      design_system_angle: cleanText(resource.design_system_angle),
+      why_it_matters_to_our_team: cleanText(resource.why_it_matters_to_our_team),
+      why_selected: cleanText(resource.why_selected),
+      expected_impact_on_workflow: cleanText(resource.expected_impact_on_workflow),
       who_should_read: resource.who_should_read,
       estimated_reading_time: resource.estimated_reading_time,
-      ignore_risk: truncateText(resource.ignore_risk, 180),
+      ignore_risk: cleanText(resource.ignore_risk),
       impact_score: resource.impact_score,
       affected_workflow_areas: resource.affected_workflow_areas,
       directDesignSystemEvidence: resource.directDesignSystemEvidence,

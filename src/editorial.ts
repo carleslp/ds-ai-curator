@@ -494,6 +494,13 @@ function buildSupportingSignals(
   narrative?: NarrativeExtraction,
   brief?: EditorialBrief
 ): string[] {
+  // The 170-char cap this used to re-apply here was smaller than fields it
+  // wraps already carry: brief.leadEvidence (max 180), brief.consequences.immediate
+  // (max 171), brief.consequences.mediumTerm (max 210, see editorialBrief.ts) and
+  // narrative.implicationForDesignSystemTeams (max 171, narrativeExtraction.ts)
+  // could all be re-clipped with an ellipsis after they were already sized for
+  // their own budget (see PR-19). 220 is the true max across all of them, with
+  // margin, so this cap is a no-op safety net rather than a second cut.
   if (contractMode && brief?.supportingEvidence.length) {
     const support = brief.supportingEvidence.slice(0, 3);
     // No "Proof:" / "Consequence:" role labels — the reader gets the observation,
@@ -502,7 +509,7 @@ function buildSupportingSignals(
       support[0] || brief.leadEvidence,
       support[1] || brief.consequences.immediate,
       support[2] || brief.consequences.mediumTerm
-    ].map((item) => publicationSafeText(truncateText(item, 170)));
+    ].map((item) => publicationSafeText(truncateText(item, 220)));
   }
 
   if (contractMode && narrative?.supportingObservations.length) {
@@ -511,7 +518,7 @@ function buildSupportingSignals(
       observations[0] || narrative.leadProof,
       observations[1] || narrative.implicationForDesignSystemTeams,
       observations[2] || narrative.readerTakeaway
-    ].map((item) => publicationSafeText(truncateText(item, 170)));
+    ].map((item) => publicationSafeText(truncateText(item, 220)));
   }
 
   if (context.representativeSupportingEvidence.length === 0) {
@@ -591,9 +598,13 @@ function buildTeamQuestions(context: ImpactContext, contractMode: boolean, narra
       ? `Where are we still operating as if ${narrative.oldAssumption.charAt(0).toLowerCase()}${narrative.oldAssumption.slice(1).replace(/[.]+$/, "")}?`
       : `What would need to change in ${surfaces} for this signal to become usable in our workflow?`,
     "What documentation or Azure DevOps metadata would our internal Design System Agent need before it could act safely?",
+    // narrative.implicationForDesignSystemTeams (narrativeExtraction.ts) is one
+    // of 2 fixed literal sentences, longest 171 chars — 120 clipped it with an
+    // ellipsis (see PR-19). 190 covers the fixed-string case with margin;
+    // context.costOfInaction is selection-layer text this PR does not touch.
     `Which governance, accessibility, or Internal QA Agent check would reduce this cost of inaction: ${truncateText(
       narrative?.implicationForDesignSystemTeams || context.costOfInaction,
-      120
+      190
     ).replace(/[.]+$/, "")}?`
       ]
     : [
@@ -613,8 +624,11 @@ function buildNextWeekWatchlist(context: HorizonContext, contractMode: boolean, 
   }
 
   if (narrative?.newReality) {
+    // newRealityFor() (narrativeExtraction.ts) returns one of 4 fixed literal
+    // sentences, longest 116 chars — 110 was 6 chars short and clipped it with
+    // an ellipsis (see PR-19). 130 covers the true max with margin.
     return [
-      `Watch for examples that confirm whether ${truncateText(narrative.newReality.charAt(0).toLowerCase() + narrative.newReality.slice(1), 110)}`,
+      `Watch for examples that confirm whether ${truncateText(narrative.newReality.charAt(0).toLowerCase() + narrative.newReality.slice(1), 130)}`,
       "Track whether tooling connects generated output back to component intent, documentation, QA, and governance.",
       "Look for teams publishing concrete review rules instead of broad AI productivity claims."
     ];

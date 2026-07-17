@@ -126,7 +126,12 @@ export function buildEditorialBrief(input: EditorialBriefInput): EditorialBrief 
     ? frame.supportingObservations
     : input.evidenceReasoning.entries.filter((entry) => entry.status === "kept").map((entry) => entry.uniqueContribution).slice(1, 4);
   const immediate = compact(frame.implicationForDesignSystemTeams, 180);
-  const mediumTerm = compact(`${frame.newReality} ${frame.readerTakeaway}`, 190);
+  // newRealityFor()/readerTakeaway in narrativeExtraction.ts are a small fixed
+  // set of literal sentences (not free LLM text), so the combined length is
+  // enumerable: longest newReality (116 chars) + " " + longest readerTakeaway
+  // (78 chars) = 195. 190 was 5 chars short of that and clipped it mid-word
+  // with an ellipsis — 210 gives it headroom instead of shaving the margin.
+  const mediumTerm = compact(`${frame.newReality} ${frame.readerTakeaway}`, 210);
   // frame.readerTakeaway is always an imperative clause ("Treat system
   // readability as..." / "Start with the workflow rule..."), so it can only be
   // chained after another imperative — never spliced into a "test whether"
@@ -134,9 +139,14 @@ export function buildEditorialBrief(input: EditorialBriefInput): EditorialBrief 
   // and Z" shape already used by buildSuggestedExperiment's own fallback.
   const reason = withoutPeriod(frame.newReality);
   const takeaway = withoutPeriod(frame.readerTakeaway);
+  // Same enumerable-set reasoning as mediumTerm above: the longest
+  // "Because X, start with one high-use component and Y." combination across
+  // all newReality x readerTakeaway pairs is 241 chars. 200 clipped it with an
+  // ellipsis on the pairing this template is built around (see PR-19); 250
+  // covers the true worst case with margin.
   const experiment = compact(
     `Because ${reason.charAt(0).toLowerCase()}${reason.slice(1)}, start with one high-use component and ${takeaway.charAt(0).toLowerCase()}${takeaway.slice(1)}.`,
-    200
+    250
   );
   const discussionQuestions = [
     `Where are we still assuming ${withoutPeriod(frame.oldAssumption).charAt(0).toLowerCase()}${withoutPeriod(frame.oldAssumption).slice(1)}?`,
