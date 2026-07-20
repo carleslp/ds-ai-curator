@@ -445,6 +445,12 @@ function isLearningRecommendationDuplicateOfEditorsPick(
 // than filtering only inside applyLearningRecommendation) keeps the debug
 // output and the rendered email in agreement — both derive from the same
 // post-dedupe value.
+//
+// On collision, prefer promoting runnerUpRecommendation (the second-ranked
+// Stage 2 candidate, already written up in learningRecommendation.ts at
+// negligible cost — no re-fetch needed) over omitting the section outright.
+// Omission remains the fallback when no runner-up exists, or when the
+// runner-up itself also collides with Editor's Pick (PR-30).
 function dedupeLearningRecommendationAgainstEditorsPick(
   learningRecommendation: LearningRecommendationDebug,
   editorsPick: Resource | null
@@ -452,6 +458,17 @@ function dedupeLearningRecommendationAgainstEditorsPick(
   const recommendation = learningRecommendation.recommendedReading;
   if (!recommendation || !isLearningRecommendationDuplicateOfEditorsPick(recommendation, editorsPick)) {
     return learningRecommendation;
+  }
+
+  const runnerUp = learningRecommendation.runnerUpRecommendation;
+  if (runnerUp && !isLearningRecommendationDuplicateOfEditorsPick(runnerUp, editorsPick)) {
+    const promotedReason = `Promoted next-best Teaching candidate ("${runnerUp.title}") after the top pick ("${recommendation.title}") collided with this issue's Editor's Pick.`;
+    return {
+      ...learningRecommendation,
+      recommendation: runnerUp,
+      recommendedReading: runnerUp,
+      recommendedReadingSelectionReason: promotedReason
+    };
   }
 
   const nullReason = `Omitted: "${recommendation.title}" duplicates this issue's Editor's Pick — a single artifact does not fill both slots.`;

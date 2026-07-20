@@ -24,6 +24,11 @@ export type LearningRecommendationDebug = {
   recommendation: LearningRecommendation | null;
   recommendedReading: LearningRecommendation | null;
   recommendedReadingSelectionReason: string;
+  // The second-ranked Stage 2 candidate, already written up (see PR-30) so
+  // it can be promoted without re-fetching if the top pick turns out to
+  // collide with Editor's Pick. Null when no second qualified candidate
+  // survived Stage 2 that week.
+  runnerUpRecommendation: LearningRecommendation | null;
   teachingCandidatesConsidered: TeachingCandidateDebug[];
   teachingCandidatesRejected: TeachingCandidateRejectionDebug[];
   evidenceVsTeachingSeparation: string;
@@ -378,6 +383,7 @@ export function emptyLearningRecommendation(): LearningRecommendationDebug {
     recommendation: null,
     recommendedReading: null,
     recommendedReadingSelectionReason: "",
+    runnerUpRecommendation: null,
     teachingCandidatesConsidered: [],
     teachingCandidatesRejected: [],
     evidenceVsTeachingSeparation: "",
@@ -448,6 +454,7 @@ function baseLearningDebug(overrides: Partial<LearningRecommendationDebug>): Lea
     recommendation,
     recommendedReading: overrides.recommendedReading ?? recommendation,
     recommendedReadingSelectionReason: overrides.recommendedReadingSelectionReason ?? overrides.whyItWon ?? "",
+    runnerUpRecommendation: overrides.runnerUpRecommendation ?? null,
     teachingCandidatesConsidered: overrides.teachingCandidatesConsidered ?? [],
     teachingCandidatesRejected: overrides.teachingCandidatesRejected ?? [],
     evidenceVsTeachingSeparation:
@@ -679,6 +686,7 @@ async function selectRoleBasedRecommendation(
       recommendation: null,
       recommendedReading: null,
       recommendedReadingSelectionReason: nullReason,
+      runnerUpRecommendation: null,
       teachingCandidatesConsidered: considered,
       teachingCandidatesRejected: rejected,
       whyItWon: "",
@@ -704,10 +712,34 @@ async function selectRoleBasedRecommendation(
   );
   const whyItWon = `${best.survivor.candidate.title} became Recommended Reading because its fetched article body ${best.reason} — the strongest thesis-connected teaching artifact after Stage 2.`;
 
+  // Written up now, at negligible cost (no extra fetch — the body is already
+  // in memory), so a same-day Editor's Pick collision can promote it later
+  // in digestService.ts without re-running Stage 2 (PR-30).
+  const runnerUp = judged[1] ?? null;
+  const runnerUpRecommendation = runnerUp
+    ? (() => {
+        const runnerUpWhyWorthYourTime = writeWhyWorthYourTime(runnerUp.body);
+        return recommendationFor(
+          {
+            candidate: runnerUp.survivor.candidate,
+            score: runnerUp.score,
+            relationScore: runnerUp.thesisTermMatches,
+            teachingScore: runnerUp.teachingSignalCount,
+            avoidPenalty: 0,
+            reasons: [`the fetched article ${runnerUp.reason}`, runnerUp.survivor.teachingFit.reason]
+          },
+          input,
+          runnerUpWhyWorthYourTime.text,
+          writeReaderTakeaway(runnerUp.body, runnerUpWhyWorthYourTime.evidence)
+        );
+      })()
+    : null;
+
   return baseLearningDebug({
     recommendation,
     recommendedReading: recommendation,
     recommendedReadingSelectionReason: whyItWon,
+    runnerUpRecommendation,
     teachingCandidatesConsidered: considered,
     teachingCandidatesRejected: rejected,
     whyItWon,
