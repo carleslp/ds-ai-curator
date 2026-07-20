@@ -65,6 +65,7 @@ import {
 import {
   emptyLearningRecommendation,
   selectLearningRecommendation,
+  type LearningRecommendation,
   type LearningRecommendationDebug
 } from "./learningRecommendation.js";
 import { truncateText } from "./textUtils.js";
@@ -384,7 +385,7 @@ function normalizeTitleForDedupe(value: string): string {
   return value.toLowerCase().replace(/\bv?\d+\.\d+\.\d+(?:-[a-z]+\.\d+)?\b/g, "version").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-function sourceFamilyForResource(resource: Resource): string {
+function sourceFamilyForResource(resource: { url: string; source: string }): string {
   try {
     return new URL(resource.url).hostname.replace(/^www\./, "").toLowerCase();
   } catch {
@@ -392,7 +393,7 @@ function sourceFamilyForResource(resource: Resource): string {
   }
 }
 
-function repoKeyForResource(resource: Resource): string {
+function repoKeyForResource(resource: { url: string; source: string }): string {
   try {
     const url = new URL(resource.url);
     const parts = url.pathname.split("/").filter(Boolean);
@@ -415,6 +416,53 @@ function isDuplicateOfEditorsPick(resource: Resource, editorsPick: Resource | nu
     sourceFamilyForResource(resource) === sourceFamilyForResource(editorsPick) ||
     repoKeyForResource(resource) === repoKeyForResource(editorsPick)
   );
+}
+
+// Recommended Reading (Teaching role) and Editor's Pick (any non-Evidence
+// role) are two independently-gated selections with no shared exclusion —
+// a single Teaching-classified artifact can legitimately win both slots.
+// That's not a misclassification, so qualifiesAsEditorsPick() and the
+// Teaching gate stay untouched; this is the cross-pipeline check neither
+// selection knows to make on its own (PR-29).
+function isLearningRecommendationDuplicateOfEditorsPick(
+  recommendation: LearningRecommendation,
+  editorsPick: Resource | null
+): boolean {
+  if (!editorsPick) return false;
+
+  return (
+    normalizeUrl(recommendation.url) === normalizeUrl(editorsPick.url) ||
+    normalizeTitleForDedupe(recommendation.title) === normalizeTitleForDedupe(editorsPick.title) ||
+    sourceFamilyForResource(recommendation) === sourceFamilyForResource(editorsPick) ||
+    repoKeyForResource(recommendation) === repoKeyForResource(editorsPick)
+  );
+}
+
+// Editor's Pick is finalized well after selectLearningRecommendation() has
+// already run and picked its candidate (see the pipeline call order below),
+// so the only reliable place to catch a collision is here, once both are
+// known. Reassigning the shared learningRecommendation debug object (rather
+// than filtering only inside applyLearningRecommendation) keeps the debug
+// output and the rendered email in agreement — both derive from the same
+// post-dedupe value.
+function dedupeLearningRecommendationAgainstEditorsPick(
+  learningRecommendation: LearningRecommendationDebug,
+  editorsPick: Resource | null
+): LearningRecommendationDebug {
+  const recommendation = learningRecommendation.recommendedReading;
+  if (!recommendation || !isLearningRecommendationDuplicateOfEditorsPick(recommendation, editorsPick)) {
+    return learningRecommendation;
+  }
+
+  const nullReason = `Omitted: "${recommendation.title}" duplicates this issue's Editor's Pick — a single artifact does not fill both slots.`;
+  return {
+    ...learningRecommendation,
+    recommendation: null,
+    recommendedReading: null,
+    recommendedReadingSelectionReason: nullReason,
+    nullConsidered: true,
+    nullReason
+  };
 }
 
 function pruneRecentHistory(): void {
@@ -1234,6 +1282,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialBrief,
         editorialRoles
       );
+      learningRecommendation = dedupeLearningRecommendationAgainstEditorsPick(learningRecommendation, editorialAssembly.digest.editorsPick);
       const editorialDigest = applyLearningRecommendation(applyLeadSignal(editorialAssembly.digest, leadSignal), learningRecommendation);
       console.log(`Step 7: LLM ranking/summarization completed (${editorialDigest.resources.length} selected).`);
 
@@ -1379,6 +1428,7 @@ export async function getDailyDigest(): Promise<DailyDigestResult> {
         editorialBrief,
         editorialRoles
       );
+      learningRecommendation = dedupeLearningRecommendationAgainstEditorsPick(learningRecommendation, fallbackAssembly.digest.editorsPick);
       const fallbackDigest = applyLearningRecommendation(applyLeadSignal(fallbackAssembly.digest, leadSignal), learningRecommendation);
       console.log(`Daily digest mode: candidateFallback (${fallbackDigest.resources.length} resources).`);
 
