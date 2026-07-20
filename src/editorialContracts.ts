@@ -415,13 +415,62 @@ export function validateSectionContracts(digest: Digest, leadSignal: CandidateSi
       right: questionsText(digest.teamDiscussionQuestions),
       regenerateSection: "questionsForOurTeam" as const
     },
+    // Added PR-28: Editor's Pick and the team-questions' third item both
+    // legitimately read from the same shared upstream field
+    // (brief.consequences.immediate / narrative.implicationForDesignSystemTeams,
+    // editorial.ts) — confirmed live: the identical sentence
+    // ("Mature teams need system rules that can block weak AI-assisted
+    // changes before review turns into cleanup.") appeared verbatim in both
+    // expected_impact_on_workflow and teamDiscussionQuestions[2] on the same
+    // response. That's the exact failure mode this matrix exists to catch;
+    // this pair went unchecked only because Editor's Pick had never
+    // surfaced in a reviewed email before. regenerateSection favors
+    // Questions for the same reason "Suggested Experiment ↔ Questions"
+    // already does — Questions exists to probe the thesis, not restate it.
+    {
+      pair: "Editor's Pick ↔ Questions",
+      left: editorsPickText(digest.editorsPick),
+      right: questionsText(digest.teamDiscussionQuestions),
+      regenerateSection: "questionsForOurTeam" as const
+    },
     // Flagged via `warning` (0.42+) same as every other pair, but PR-23
     // deliberately leaves regenerateSection null here: its typical overlap
     // (~0.48 on the run that motivated this fix) is meaningfully softer than
     // the 0.86 case PR-23 targets, and folding it in — or lowering the
     // threshold to catch it — is a separate calibration question for after
     // the 0.5-threshold fix has been observed across a few runs.
-    { pair: "Watchlist ↔ The Signal", left: watchlistText(digest.nextWeekWatchlist), right: digest.theSignal, regenerateSection: null }
+    { pair: "Watchlist ↔ The Signal", left: watchlistText(digest.nextWeekWatchlist), right: digest.theSignal, regenerateSection: null },
+    // Added PR-28 (audit finding): Suggested Experiment and the watchlist's
+    // narrative-branch item both embed narrative.newReality directly
+    // (buildEditorialBrief's `experiment` field and buildNextWeekWatchlist's
+    // narrative branch, editorial.ts/editorialBrief.ts) — the exact same root
+    // cause already covered for "The Signal ↔ Suggested Experiment" (0.86)
+    // and "Watchlist ↔ The Signal" (0.48, warning-only): all three sections
+    // draw on the same fixed newReality sentence. Measured 0.64 on two live
+    // runs — already above the enforcement threshold — so this gets the same
+    // enforced treatment as the other newReality-sharing pair rather than
+    // being left as a warning, unlike Watchlist ↔ The Signal's softer 0.48.
+    {
+      pair: "Suggested Experiment ↔ Watchlist",
+      left: digest.suggestedExperiment,
+      right: watchlistText(digest.nextWeekWatchlist),
+      regenerateSection: "watchlist" as const
+    },
+    // Added PR-28 (audit finding): The Signal and the team-questions' first
+    // item both contrast narrative.oldAssumption/newReality directly
+    // (buildSignal's brief/narrative branches and buildTeamQuestions' first
+    // item, editorial.ts). Measured 0.48 on two live runs — the same level as
+    // "Watchlist ↔ The Signal", which PR-23 already decided to leave
+    // warning-only pending observation across more runs. Following that same
+    // precedent here rather than making an independent call on an
+    // equally-soft overlap: regenerateSection is null, flagged via `warning`
+    // but not `enforced`.
+    {
+      pair: "The Signal ↔ Questions",
+      left: digest.theSignal,
+      right: questionsText(digest.teamDiscussionQuestions),
+      regenerateSection: null
+    }
   ].map(({ pair, left, right, regenerateSection }) => {
     const score = overlapScore(left, right);
     return {
