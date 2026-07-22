@@ -54,6 +54,23 @@ export type Digest = {
   resources: Resource[];
 };
 
+// Brand palette (PR-31 asset infra, PR-32 visual direction: light, single-column).
+const COLOR_DARK = "#210D0C"; // headline / body text
+const COLOR_ACCENT = "#F27F33"; // labels, links, CTA
+const COLOR_MAROON = "#6E2D27"; // header gradient anchor only — no card fills in PR-32
+const COLOR_MUTED = "#645655"; // metadata, italic captions, footer
+const COLOR_BORDER = "#BCB6B6"; // thin dividers only — no panel fills in PR-32
+const COLOR_WHITE = "#FFFFFF";
+
+const FONTS_BASE_URL = "https://ds-ai-curator.vercel.app/fonts";
+
+// Headlines, quotes, section labels.
+const FONT_HEAD = "font-family:'Messapia',Georgia,'Times New Roman',serif;";
+// Body copy, metadata, links, buttons — everything else.
+const FONT_BODY = "font-family:'Source Sans 3',-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;";
+// Secondary/supporting lines (attribution, source/date, reading time) — italic, muted, small.
+const FONT_CAPTION = `font-style:italic;color:${COLOR_MUTED};${FONT_BODY}`;
+
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -69,7 +86,19 @@ function safeUrl(value: unknown): string {
   return "#";
 }
 
-function renderResourceCard(resource: Resource): string {
+// Whitespace between sections — no card borders or background panels per PR-32.
+function renderDivider(): string {
+  return `<div style="border-top:1px solid ${COLOR_BORDER};margin:28px 0;font-size:0;line-height:0;">&nbsp;</div>`;
+}
+
+function renderSectionLabel(label: string): string {
+  return `
+                    <div style="font-size:10px;font-weight:700;color:${COLOR_ACCENT};letter-spacing:0.14em;text-transform:uppercase;margin-bottom:12px;${FONT_HEAD}">
+                      ${escapeHtml(label)}
+                    </div>`;
+}
+
+function renderResourceItem(resource: Resource): string {
   const date = cleanText(resource.published_date || resource.date || "Recent");
   const displayTitle = cleanText(resource.editorialTitle || resource.title);
   // The model is prompted to target summary at 280, why_it_matters_to_our_team
@@ -82,94 +111,50 @@ function renderResourceCard(resource: Resource): string {
   const ignoreRisk = resource.ignore_risk ? cleanText(resource.ignore_risk) : "";
 
   return `
-<table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="height:100%;background:#ffffff;border:1px solid #ede9f3;border-radius:14px;table-layout:fixed;">
-  <tr height="100%">
-    <td height="100%" valign="top" style="height:100%;padding:20px 20px 12px;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
-        <tr>
-          <td valign="top">
-            <span style="font-size:9px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#ede9fe;color:#6d28d9;">
-              ${escapeHtml(cleanText(resource.type))}
-            </span>
-          </td>
-          <td valign="top" style="text-align:right;font-size:10px;color:#9ca3af;white-space:nowrap;">
-            ${escapeHtml(date)}
-          </td>
-        </tr>
-      </table>
-
-      <div style="font-size:16px;font-weight:800;color:#111827;margin-bottom:6px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:44px;">
-        <a href="${safeUrl(resource.url)}" style="color:#111827;text-decoration:none;">
-          ${escapeHtml(displayTitle)}
-        </a>
-      </div>
-
-      <div style="font-size:13px;color:#4b5563;line-height:1.65;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;max-height:86px;">
-        ${escapeHtml(summary)}
-      </div>
-
-      ${
-        whyItMatters
-          ? `<div style="font-size:12px;color:#312e81;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#f5f3ff;border-left:3px solid #8b5cf6;border-radius:8px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;max-height:56px;">
-        <strong style="color:#5b21b6;">Why it matters:</strong>&nbsp;${escapeHtml(whyItMatters)}
-      </div>`
-          : ""
-      }
-
-      ${
-        ignoreRisk
-          ? `<div style="font-size:11px;color:#6b21a8;line-height:1.55;margin-bottom:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:35px;">
-        <strong>If we ignore this:</strong> ${escapeHtml(ignoreRisk)}
-      </div>`
-          : ""
-      }
-    </td>
-  </tr>
-  <tr>
-    <td valign="bottom" style="padding:0 20px 20px;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0">
-        <tr>
-          <td valign="bottom" style="font-size:11px;color:#9ca3af;font-style:italic;line-height:1.4;">
-            ${escapeHtml(cleanText(resource.source))}
-          </td>
-          <td valign="bottom" style="text-align:right;white-space:nowrap;">
-            <a href="${safeUrl(resource.url)}" style="font-size:11px;color:#7c3aed;font-weight:800;text-decoration:none;">
-              Read →
-            </a>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>`;
+<div style="margin-bottom:6px;font-size:11px;${FONT_CAPTION}">
+  ${escapeHtml(cleanText(resource.type))} · ${escapeHtml(date)}
+</div>
+<div style="font-size:17px;font-weight:700;color:${COLOR_DARK};line-height:1.4;margin-bottom:8px;${FONT_HEAD}">
+  <a href="${safeUrl(resource.url)}" style="color:${COLOR_DARK};text-decoration:none;">
+    ${escapeHtml(displayTitle)}
+  </a>
+</div>
+<div style="font-size:14px;color:${COLOR_DARK};line-height:1.7;margin-bottom:10px;${FONT_BODY}">
+  ${escapeHtml(summary)}
+</div>
+${
+  whyItMatters
+    ? `<div style="font-size:12px;line-height:1.6;margin-bottom:8px;${FONT_CAPTION}">
+  <span style="color:${COLOR_ACCENT};font-weight:700;font-style:normal;">Why it matters —</span> ${escapeHtml(whyItMatters)}
+</div>`
+    : ""
+}
+${
+  ignoreRisk
+    ? `<div style="font-size:12px;line-height:1.6;margin-bottom:8px;${FONT_CAPTION}">
+  <span style="font-weight:700;font-style:normal;">If we ignore this —</span> ${escapeHtml(ignoreRisk)}
+</div>`
+    : ""
+}
+<div style="font-size:12px;${FONT_BODY}">
+  <span style="color:${COLOR_MUTED};font-style:italic;">${escapeHtml(cleanText(resource.source))}</span>
+  &nbsp;&nbsp;
+  <a href="${safeUrl(resource.url)}" style="color:${COLOR_ACCENT};font-weight:700;text-decoration:none;">Read →</a>
+</div>`;
 }
 
-function renderResourceGrid(resources: Resource[]): string {
-  const rows: string[] = [];
-
-  for (let index = 0; index < resources.length; index += 2) {
-    const left = resources[index];
-    const right = resources[index + 1];
-
-    rows.push(`
+function renderResourceList(resources: Resource[]): string {
+  return resources
+    .map(
+      (resource, index) => `
                       <tr>
-                        <td class="resource-column" width="50%" height="100%" valign="top" style="width:50%;height:100%;padding:0 10px 20px 0;">
-                          ${renderResourceCard(left)}
+                        <td style="padding:${index === 0 ? "0" : "22px"} 0 0;">
+                          ${index > 0 ? `<div style="border-top:1px solid ${COLOR_BORDER};margin-bottom:22px;font-size:0;line-height:0;">&nbsp;</div>` : ""}
+                          ${renderResourceItem(resource)}
                         </td>
-                        <td class="resource-column" width="50%" height="100%" valign="top" style="width:50%;height:100%;padding:0 0 20px 10px;">
-                          ${right ? renderResourceCard(right) : ""}
-                        </td>
-                      </tr>`);
-  }
-
-  return rows.join("");
-}
-
-function renderSectionLabel(label: string): string {
-  return `
-                    <div style="font-size:9px;font-weight:900;color:#7c3aed;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:14px;padding-bottom:9px;border-bottom:1px solid #f3f4f6;">
-                      ${escapeHtml(label)}
-                    </div>`;
+                      </tr>`
+    )
+    .join("");
 }
 
 function renderTheSignal(theSignal: string): string {
@@ -178,25 +163,29 @@ function renderTheSignal(theSignal: string): string {
 
   return `
                     ${renderSectionLabel("The Signal")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:26px;">
-                      <tr>
-                        <td style="padding:20px;background:#fbfaff;border:1px solid #ede9fe;border-radius:14px;">
-                          <div style="font-size:14px;color:#374151;line-height:1.7;">
-                            ${escapeHtml(brief)}
-                          </div>
-                        </td>
-                      </tr>
-                    </table>
-`;
+                    <div style="font-size:15px;color:${COLOR_DARK};line-height:1.75;${FONT_BODY}">
+                      ${escapeHtml(brief)}
+                    </div>`;
+}
+
+function renderCurationMode(trendSummary: string): string {
+  const summary = cleanText(trendSummary);
+  if (!summary) return "";
+
+  return `
+                    ${renderSectionLabel("Curation Mode")}
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.7;${FONT_BODY}">
+                      ${escapeHtml(summary)}
+                    </div>`;
 }
 
 function renderEditorsPick(editorsPick: Resource | null): string {
   if (!editorsPick) return "";
 
   const displayTitle = cleanText(editorsPick.editorialTitle || editorsPick.title);
-  // Same fields as renderResourceCard, targeted at 280/220 — see the comment
-  // there. Unlike the supporting-card grid, this hero section has no CSS
-  // line-clamp, so it can show the same text uncropped.
+  // Same fields as renderResourceItem, targeted at 280/220 — see the comment
+  // there. This hero section has no CSS line-clamp, so it shows the same
+  // text uncropped.
   const summary = cleanText(editorsPick.cleanSummary ?? editorsPick.summary);
   const whyItMatters = editorsPick.why_it_matters_to_our_team ? cleanText(editorsPick.why_it_matters_to_our_team) : "";
   const date = cleanText(editorsPick.published_date || editorsPick.date || "Recent");
@@ -209,70 +198,49 @@ function renderEditorsPick(editorsPick: Resource | null): string {
 
   return `
                     ${renderSectionLabel("Editor's Pick")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;background:#2d1054;border-radius:16px;">
+                    <div style="margin-bottom:8px;font-size:11px;${FONT_CAPTION}">
+                      ${escapeHtml(cleanText(editorsPick.type))} · ${escapeHtml(date)}
+                    </div>
+                    <div style="font-size:22px;font-weight:700;color:${COLOR_DARK};line-height:1.3;margin-bottom:12px;${FONT_HEAD}">
+                      <a href="${safeUrl(editorsPick.url)}" style="color:${COLOR_DARK};text-decoration:none;">
+                        ${escapeHtml(displayTitle)}
+                      </a>
+                    </div>
+                    <div style="font-size:15px;color:${COLOR_DARK};line-height:1.75;margin-bottom:14px;${FONT_BODY}">
+                      ${escapeHtml(summary)}
+                    </div>
+                    ${
+                      whyItMatters
+                        ? `<div style="font-size:13px;line-height:1.6;margin-bottom:14px;${FONT_CAPTION}">
+                      <span style="color:${COLOR_ACCENT};font-weight:700;font-style:normal;">Why it matters —</span> ${escapeHtml(whyItMatters)}
+                    </div>`
+                        : ""
+                    }
+                    ${
+                      detailRows.length > 0
+                        ? detailRows
+                            .map(
+                              ([label, value]) => `
+                    <div style="font-size:12px;line-height:1.7;margin-bottom:4px;${FONT_BODY}">
+                      <span style="color:${COLOR_MUTED};font-weight:700;text-transform:uppercase;letter-spacing:0.03em;">${escapeHtml(label)}:</span>
+                      <span style="color:${COLOR_DARK};">${escapeHtml(value)}</span>
+                    </div>`
+                            )
+                            .join("")
+                        : ""
+                    }
+                    <div style="font-size:12px;margin-top:10px;${FONT_CAPTION}">
+                      ${escapeHtml(cleanText(editorsPick.source))}
+                    </div>
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
-                        <td style="padding:22px;border-left:4px solid #a78bfa;border-radius:16px;">
-                          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px;">
-                            <tr>
-                              <td>
-                                <span style="font-size:9px;font-weight:800;text-transform:uppercase;padding:3px 9px;border-radius:999px;background:#ede9fe;color:#6d28d9;">
-                                  ${escapeHtml(cleanText(editorsPick.type))}
-                                </span>
-                              </td>
-                              <td style="text-align:right;font-size:10px;color:#c4b5fd;white-space:nowrap;">
-                                ${escapeHtml(date)}
-                              </td>
-                            </tr>
-                          </table>
-                          <div style="font-size:18px;font-weight:900;line-height:1.35;margin-bottom:8px;">
-                            <a href="${safeUrl(editorsPick.url)}" style="color:#ffffff;text-decoration:none;">
-                              ${escapeHtml(displayTitle)}
-                            </a>
-                          </div>
-                          <div style="font-size:13px;color:#ddd6fe;line-height:1.65;margin-bottom:10px;">
-                            ${escapeHtml(summary)}
-                          </div>
-                          ${
-                            whyItMatters
-                              ? `<div style="font-size:12px;color:#f5f3ff;line-height:1.55;margin-bottom:12px;padding:10px 12px;background:#3b1a68;border-left:3px solid #c4b5fd;border-radius:8px;">
-                            <strong style="color:#ffffff;">Why it matters:</strong>&nbsp;${escapeHtml(whyItMatters)}
-                          </div>`
-                              : ""
-                          }
-                          ${
-                            detailRows.length > 0
-                              ? `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
-                            ${detailRows
-                              .map(
-                                ([label, value]) => `
-                            <tr>
-                              <td style="padding:5px 0;font-size:11px;color:#c4b5fd;font-weight:800;width:38%;vertical-align:top;">
-                                ${escapeHtml(label)}
-                              </td>
-                              <td style="padding:5px 0;font-size:11px;color:#f5f3ff;line-height:1.5;vertical-align:top;">
-                                ${escapeHtml(value)}
-                              </td>
-                            </tr>`
-                              )
-                              .join("")}
-                          </table>`
-                              : ""
-                          }
-                          <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                            <tr>
-                              <td style="font-size:11px;color:#c4b5fd;font-style:italic;">
-                                ${escapeHtml(cleanText(editorsPick.source))}
-                              </td>
-                              <td style="text-align:right;">
-                                <a href="${safeUrl(editorsPick.url)}" style="font-size:11px;color:#ffffff;font-weight:800;text-decoration:none;">
-                                  Read →
-                                </a>
-                              </td>
-                            </tr>
-                          </table>
+                        <td align="center">
+                          <a href="${safeUrl(editorsPick.url)}" style="display:block;width:220px;border-radius:25px;background-color:${COLOR_ACCENT};margin:24px auto 0;padding:10px 16px;color:${COLOR_WHITE};font-size:0.9em;letter-spacing:0.08em;text-align:center;text-transform:uppercase;text-decoration:none;font-weight:700;${FONT_BODY}">
+                            Read the full story →
+                          </a>
                         </td>
                       </tr>
-	                    </table>`;
+                    </table>`;
 }
 
 // Hard invariant: no reader-facing string may expose the selection machinery.
@@ -306,45 +274,32 @@ function renderLearningRecommendation(recommendation: LearningRecommendation | n
   // (readerGain used to be the same fixed sentence every issue — PR-20).
   const whyBlock = whyRecommended
     ? `
-                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:10px;">
-                            <strong style="color:#9a3412;">Why this is worth your time:</strong> ${escapeHtml(whyRecommended)}
-                          </div>`
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.7;margin-bottom:10px;${FONT_BODY}">
+                      <strong style="color:${COLOR_ACCENT};">Why this is worth your time:</strong> ${escapeHtml(whyRecommended)}
+                    </div>`
     : "";
   const readerGainBlock = readerGain
     ? `
-                          <div style="font-size:13px;color:#431407;line-height:1.65;margin-bottom:12px;">
-                            <strong style="color:#9a3412;">Reader takeaway:</strong> ${escapeHtml(readerGain)}
-                          </div>`
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.7;margin-bottom:12px;${FONT_BODY}">
+                      <strong style="color:${COLOR_ACCENT};">Reader takeaway:</strong> ${escapeHtml(readerGain)}
+                    </div>`
     : "";
 
   return `
                     ${renderSectionLabel("If you read one thing this week")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;">
-                      <tr>
-                        <td style="padding:18px 20px;">
-                          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;">
-                            <tr>
-                              <td style="font-size:11px;color:#9a3412;font-weight:800;text-transform:uppercase;">
-                                ${escapeHtml(source)}
-                              </td>
-                              <td style="text-align:right;font-size:11px;color:#9a3412;font-weight:700;white-space:nowrap;">
-                                ${escapeHtml(minutes)}
-                              </td>
-                            </tr>
-                          </table>
-                          <div style="font-size:17px;font-weight:900;line-height:1.35;margin-bottom:8px;">
-                            <a href="${safeUrl(recommendation.url)}" style="color:#111827;text-decoration:none;">
-                              ${escapeHtml(title)}
-                            </a>
-                          </div>
-                          ${whyBlock}
-                          ${readerGainBlock}
-                          <a href="${safeUrl(recommendation.url)}" style="font-size:12px;color:#c2410c;font-weight:900;text-decoration:none;">
-                            Read →
-                          </a>
-                        </td>
-                      </tr>
-                    </table>`;
+                    <div style="margin-bottom:8px;font-size:11px;${FONT_CAPTION}">
+                      ${escapeHtml(source)} · ${escapeHtml(minutes)}
+                    </div>
+                    <div style="font-size:18px;font-weight:700;color:${COLOR_DARK};line-height:1.35;margin-bottom:10px;${FONT_HEAD}">
+                      <a href="${safeUrl(recommendation.url)}" style="color:${COLOR_DARK};text-decoration:none;">
+                        ${escapeHtml(title)}
+                      </a>
+                    </div>
+                    ${whyBlock}
+                    ${readerGainBlock}
+                    <a href="${safeUrl(recommendation.url)}" style="font-size:12px;color:${COLOR_ACCENT};font-weight:700;text-decoration:none;${FONT_BODY}">
+                      Read →
+                    </a>`;
 }
 
 function renderSupportingSignals(signals: string[]): string {
@@ -353,26 +308,14 @@ function renderSupportingSignals(signals: string[]): string {
 
   return `
                     ${renderSectionLabel("Supporting Signals")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
-                      <tr>
-                        ${cleanSignals
-                          .map(
-                            (signal, index) => `
-                        <td class="resource-column" width="33.33%" valign="top" style="width:33.33%;padding:${index === 0 ? "0 10px 0 0" : index === cleanSignals.length - 1 ? "0 0 0 10px" : "0 10px"};">
-                          <table width="100%" height="100%" cellpadding="0" cellspacing="0" border="0" style="height:100%;background:#fbfaff;border:1px solid #ede9fe;border-radius:12px;table-layout:fixed;">
-                            <tr height="100%">
-                              <td height="100%" valign="top" style="height:100%;padding:14px;font-size:12px;color:#374151;line-height:1.55;">
-                                <div style="display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;max-height:75px;">
-                                  ${escapeHtml(signal)}
-                                </div>
-                              </td>
-                            </tr>
-                          </table>
-                        </td>`
-                          )
-                          .join("")}
-                      </tr>
-                    </table>`;
+                    ${cleanSignals
+                      .map(
+                        (signal, index) => `
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.65;margin-bottom:${index === cleanSignals.length - 1 ? "0" : "10px"};${FONT_BODY}">
+                      <span style="color:${COLOR_ACCENT};">—</span> ${escapeHtml(signal)}
+                    </div>`
+                      )
+                      .join("")}`;
 }
 
 function renderResourcesSection(resources: Resource[], resourceLabel: string): string {
@@ -380,8 +323,8 @@ function renderResourcesSection(resources: Resource[], resourceLabel: string): s
 
   return `
                     ${renderSectionLabel(`${resourceLabel} · supporting resources`)}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:8px;table-layout:fixed;">
-                      ${renderResourceGrid(resources)}
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                      ${renderResourceList(resources)}
                     </table>`;
 }
 
@@ -391,15 +334,9 @@ function renderSuggestedExperiment(suggestedExperiment: string): string {
 
   return `
                     ${renderSectionLabel("Suggested Experiment")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:26px;">
-                      <tr>
-                        <td style="padding:18px;background:#ffffff;border:1px solid #ede9f3;border-radius:14px;">
-                          <div style="font-size:13px;color:#374151;line-height:1.65;">
-                            ${escapeHtml(experiment)}
-                          </div>
-                        </td>
-                      </tr>
-                    </table>`;
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.7;${FONT_BODY}">
+                      ${escapeHtml(experiment)}
+                    </div>`;
 }
 
 function renderTeamQuestions(teamDiscussionQuestions: string[]): string {
@@ -408,20 +345,14 @@ function renderTeamQuestions(teamDiscussionQuestions: string[]): string {
 
   return `
                     ${renderSectionLabel("Questions for our Team")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;table-layout:fixed;">
-                      <tr>
-                        <td style="padding:18px;background:#f9fafb;border:1px solid #f3f4f6;border-radius:14px;">
-                          ${questions
-                            .map(
-                              (question, index) => `
-                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:${index === questions.length - 1 ? "0" : "8px"};">
-                            ${escapeHtml(question)}
-                          </div>`
-                            )
-                            .join("")}
-                        </td>
-                      </tr>
-                    </table>`;
+                    ${questions
+                      .map(
+                        (question, index) => `
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.65;margin-bottom:${index === questions.length - 1 ? "0" : "10px"};${FONT_BODY}">
+                      <span style="color:${COLOR_ACCENT};">—</span> ${escapeHtml(question)}
+                    </div>`
+                      )
+                      .join("")}`;
 }
 
 function renderNextWeekWatchlist(nextWeekWatchlist: string[]): string {
@@ -430,20 +361,14 @@ function renderNextWeekWatchlist(nextWeekWatchlist: string[]): string {
 
   return `
                     ${renderSectionLabel("Next Week Watchlist")}
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
-                      <tr>
-                        <td style="padding:18px;background:#fbfaff;border:1px solid #ede9fe;border-radius:14px;">
-                          ${items
-                            .map(
-                              (item, index) => `
-                          <div style="font-size:13px;color:#374151;line-height:1.6;margin-bottom:${index === items.length - 1 ? "0" : "8px"};">
-                            ${escapeHtml(item)}
-                          </div>`
-                            )
-                            .join("")}
-                        </td>
-                      </tr>
-                    </table>`;
+                    ${items
+                      .map(
+                        (item, index) => `
+                    <div style="font-size:14px;color:${COLOR_DARK};line-height:1.65;margin-bottom:${index === items.length - 1 ? "0" : "10px"};${FONT_BODY}">
+                      <span style="color:${COLOR_ACCENT};">—</span> ${escapeHtml(item)}
+                    </div>`
+                      )
+                      .join("")}`;
 }
 
 export function renderEmail(digest: Digest): string {
@@ -451,93 +376,113 @@ export function renderEmail(digest: Digest): string {
   const resourceCount = digest.resources.length;
   const resourceLabel = `${resourceCount} ${resourceCount === 1 ? "resource" : "resources"}`;
 
+  const sections = [
+    renderCurationMode(digest.trend_summary),
+    renderTheSignal(digest.theSignal || digest.executiveBrief),
+    renderEditorsPick(digest.editorsPick),
+    renderLearningRecommendation(digest.learningRecommendation),
+    renderSupportingSignals(digest.supportingSignals ?? digest.thisWeeksSignals),
+    renderResourcesSection(resources, resourceLabel),
+    renderSuggestedExperiment(digest.suggestedExperiment),
+    renderTeamQuestions(digest.teamDiscussionQuestions),
+    renderNextWeekWatchlist(digest.nextWeekWatchlist ?? [])
+  ].filter(Boolean);
+
+  const sectionsHtml = sections.join(renderDivider());
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>DS × AI Curator</title>
+  <style>
+    @font-face {
+      font-family: 'Messapia';
+      src: url('${FONTS_BASE_URL}/Messapia-Regular.woff2') format('woff2'),
+           url('${FONTS_BASE_URL}/Messapia-Regular.woff') format('woff');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Messapia';
+      src: url('${FONTS_BASE_URL}/Messapia-Bold.woff2') format('woff2'),
+           url('${FONTS_BASE_URL}/Messapia-Bold.woff') format('woff');
+      font-weight: 700;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Source Sans 3';
+      src: url('${FONTS_BASE_URL}/SourceSans3-Regular.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Source Sans 3';
+      src: url('${FONTS_BASE_URL}/SourceSans3-SemiBold.woff2') format('woff2');
+      font-weight: 600;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'Source Sans 3';
+      src: url('${FONTS_BASE_URL}/SourceSans3-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+    }
+  </style>
 </head>
-<body style="margin:0;padding:24px 16px;background:#F0EEF8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica Neue',Arial,sans-serif;">
+<body style="margin:0;padding:24px 16px;background:${COLOR_WHITE};${FONT_BODY}">
   <table width="100%" cellpadding="0" cellspacing="0" border="0">
     <tr>
       <td align="center">
 
-        <table class="email-container" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:1200px;">
+        <table class="email-container" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;">
           <tr>
             <td>
 
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#1a0533;border-radius:18px 18px 0 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:${COLOR_MAROON};background-image:linear-gradient(0deg, rgba(242, 127, 51, 0.80) 0%, rgba(242, 127, 51, 0.60) 0.01%, ${COLOR_MAROON} 68.75%);border-radius:18px 18px 0 0;">
                 <tr>
-                  <td class="email-padding" style="padding:30px 40px 22px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <td align="center" style="padding:40px 40px 32px;">
+                    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
                       <tr>
-                        <td>
-                          <table cellpadding="0" cellspacing="0" border="0">
-                            <tr>
-                              <td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;min-width:40px;line-height:40px;background:#7c3aed;border-radius:12px;text-align:center;vertical-align:middle;font-size:18px;color:#ffffff;mso-line-height-rule:exactly;">
-                                <span style="display:inline-block;line-height:40px;mso-line-height-rule:exactly;">⚡</span>
-                              </td>
-                              <td width="16" style="width:16px;font-size:0;line-height:0;">&nbsp;</td>
-                              <td height="40" valign="middle" style="height:40px;font-size:21px;line-height:40px;font-weight:900;color:#ffffff;vertical-align:middle;mso-line-height-rule:exactly;">
-                                <span style="line-height:40px;mso-line-height-rule:exactly;">DS × AI Curator</span>
-                              </td>
-                            </tr>
-                          </table>
-                          <div style="font-size:11px;color:#a78bfa;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;margin-top:9px;padding-left:56px;">
-                            Design Systems · Artificial Intelligence
-                          </div>
+                        <td width="40" height="40" align="center" valign="middle" style="width:40px;height:40px;min-width:40px;line-height:40px;background:${COLOR_WHITE};border-radius:12px;text-align:center;vertical-align:middle;font-size:18px;mso-line-height-rule:exactly;">
+                          <span style="display:inline-block;line-height:40px;mso-line-height-rule:exactly;">⚡</span>
                         </td>
-                        <td style="text-align:right;vertical-align:top;font-size:12px;color:#c4b5fd;font-weight:600;white-space:nowrap;">
-                          ${escapeHtml(digest.date)}
+                        <td width="12" style="width:12px;font-size:0;line-height:0;">&nbsp;</td>
+                        <td valign="middle" style="font-size:22px;line-height:40px;font-weight:700;color:${COLOR_WHITE};vertical-align:middle;mso-line-height-rule:exactly;${FONT_HEAD}">
+                          <span style="line-height:40px;mso-line-height-rule:exactly;">DS × AI Curator</span>
                         </td>
                       </tr>
                     </table>
-                  </td>
-                </tr>
-              </table>
-
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#2d1054;border-left:4px solid #7c3aed;">
-                <tr>
-                  <td class="email-padding" style="padding:17px 40px;">
-                    <div style="font-size:9px;font-weight:900;color:#c4b5fd;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:7px;">
-                      Curation Mode
+                    <div style="font-size:11px;color:${COLOR_WHITE};font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-top:10px;${FONT_BODY}">
+                      Design Systems · Artificial Intelligence
                     </div>
-                    <div style="font-size:13px;color:#ddd6fe;line-height:1.65;">
-                      ${escapeHtml(cleanText(digest.trend_summary))}
+                    <div style="font-size:11px;color:rgba(255,255,255,0.75);margin-top:6px;${FONT_BODY}">
+                      ${escapeHtml(digest.date)}
                     </div>
                   </td>
                 </tr>
               </table>
 
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COLOR_WHITE};">
                 <tr>
-                  <td class="email-padding" style="padding:30px 40px;">
-                    ${renderTheSignal(digest.theSignal || digest.executiveBrief)}
-                    ${renderEditorsPick(digest.editorsPick)}
-                    ${renderLearningRecommendation(digest.learningRecommendation)}
-                    ${renderSupportingSignals(digest.supportingSignals ?? digest.thisWeeksSignals)}
-                    ${renderResourcesSection(resources, resourceLabel)}
-                    ${renderSuggestedExperiment(digest.suggestedExperiment)}
-                    ${renderTeamQuestions(digest.teamDiscussionQuestions)}
-                    ${renderNextWeekWatchlist(digest.nextWeekWatchlist ?? [])}
+                  <td class="email-padding" style="padding:40px;">
+                    ${sectionsHtml}
                   </td>
                 </tr>
               </table>
 
-              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f9fafb;border-top:1px solid #e5e7eb;border-radius:0 0 18px 18px;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${COLOR_WHITE};border-top:1px solid ${COLOR_BORDER};border-radius:0 0 18px 18px;">
                 <tr>
-                  <td class="email-padding" style="padding:20px 40px;">
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="table-layout:fixed;">
-                      <tr>
-                        <td valign="middle" style="font-size:11px;color:#9ca3af;line-height:1.45;">
-                          Curated by <strong style="color:#6b7280;">DS × AI Curator</strong>
-                        </td>
-                        <td valign="middle" style="text-align:right;font-size:11px;color:#7c3aed;font-weight:700;line-height:1.45;">
-                          Built for better system thinking
-                        </td>
-                      </tr>
-                    </table>
+                  <td style="padding:24px 40px 8px;text-align:center;font-size:11px;color:${COLOR_MUTED};line-height:1.6;${FONT_BODY}">
+                    Curated by <strong style="color:${COLOR_DARK};">DS × AI Curator</strong> — Built for better system thinking
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 40px 32px;text-align:center;font-size:11px;${FONT_BODY}">
+                    <a href="#linkedin-placeholder" style="color:${COLOR_MUTED};text-decoration:underline;">LinkedIn</a>
+                    <span style="color:${COLOR_BORDER};">&nbsp;&nbsp;|&nbsp;&nbsp;</span>
+                    <a href="#portfolio-placeholder" style="color:${COLOR_MUTED};text-decoration:underline;">Portfolio</a>
                   </td>
                 </tr>
               </table>
